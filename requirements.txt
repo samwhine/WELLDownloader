@@ -1,0 +1,15 @@
+# ── Web Framework ──────────────────────────
+fastapi
+uvicorn[standard]
+python-multipart
+
+# ── Downloader ─────────────────────────────
+yt-dlp
+requests
+
+# ── Notes ──────────────────────────────────
+# FFmpeg must be installed separately (system binary) — required for
+# merging video+audio streams and for audio-format conversion:
+#   Windows: https://www.gyan.dev/ffmpeg/builds/
+#   Linux:   sudo apt install ffmpeg
+#   macOS:   brew install ffmpeg
