@@ -4,7 +4,7 @@ A self-hosted media downloader — video, audio, images, and thumbnails from You
 
 Built with FastAPI (Python) on the backend and a single-page vanilla HTML/CSS/JS frontend — no build step, no framework, no node_modules.
 
-**Author:** [Samuel Extehines Heydemans](https://github.com/YOUR-GITHUB-USERNAME)
+**Author:** [Samuel Extehines Heydemans](https://github.com/samwhine)
 
 ## Features
 
@@ -24,8 +24,8 @@ Built with FastAPI (Python) on the backend and a single-page vanilla HTML/CSS/JS
 
 ```bash
 # 1. Clone the repo
-git clone <your-repo-url>
-cd well-downloader
+git clone https://github.com/samwhine/WELLDownloader.git
+cd WELLDownloader
 
 # 2. Create a virtual environment
 python -m venv venv
@@ -74,7 +74,7 @@ This app needs a server that stays running and supports installing system binari
 
 **Samuel Extehines Heydemans**
 
-- GitHub: [@YOUR-GITHUB-USERNAME](https://github.com/YOUR-GITHUB-USERNAME)
+- GitHub: [@samwhine](https://github.com/samwhine)
 
 If you use or fork this project, a link back or credit is appreciated.
 
