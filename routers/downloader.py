@@ -209,6 +209,42 @@ def _detect_platform(url):
         return "Unknown"
 
 
+def clean_youtube_url(url):
+    """
+    Strip playlist/Mix/Radio parameters (list=..., start_radio=...) from a
+    YouTube watch URL. Without this, opening a video from inside a Mix/
+    Radio/playlist makes yt-dlp treat the WHOLE playlist as the target —
+    which this app then (correctly, but confusingly) detects as a
+    "gallery" and shows other videos' thumbnails as if they were
+    selectable images, takes far longer to fetch, and hides the actual
+    video/audio download options. Stripping down to just `v=<id>` keeps
+    it a single-video request, matching what the user actually clicked.
+    Returns (cleaned_url, was_cleaned: bool).
+    """
+    if "youtube.com" not in url and "youtu.be" not in url:
+        return url, False
+    try:
+        parsed = urllib.parse.urlparse(url)
+        qs = urllib.parse.parse_qs(parsed.query)
+        if "list" not in qs and "start_radio" not in qs:
+            return url, False
+
+        if "youtu.be" in parsed.netloc:
+            video_id = parsed.path.strip("/")
+            if not video_id:
+                return url, False
+            return f"https://youtu.be/{video_id}", True
+
+        if "v" in qs:
+            video_id = qs["v"][0]
+            cleaned = urllib.parse.urlunparse(parsed._replace(query=f"v={video_id}"))
+            return cleaned, True
+
+        return url, False
+    except Exception:
+        return url, False
+
+
 # STATUS
 
 @router.get("/status")
@@ -247,6 +283,11 @@ async def api_info(request: Request):
     platform_warning = None
     if block_type == "soft":
         platform_warning = f"{block_info['name']}: {block_info['reason']} {block_info['tip']}"
+
+    url, was_playlist_cleaned = clean_youtube_url(url)
+    if was_playlist_cleaned:
+        playlist_note = "Playlist/Mix parameters removed — fetching the single video only."
+        platform_warning = f"{platform_warning} {playlist_note}" if platform_warning else playlist_note
 
     try:
         flat_opts = build_ydl_opts_for_url(url, {"extract_flat": "in_playlist"})
@@ -310,10 +351,15 @@ async def api_info(request: Request):
             ext = info.get("ext", "jpg")
             return JSONResponse({"title": info.get("title", "Image"), "thumbnail": proxy_url(direct_url), "thumbnails": [], "duration": 0, "uploader": info.get("uploader") or "", "view_count": info.get("view_count"), "platform": info.get("extractor_key", ""), "content_type": "image", "images": [{"index": 0, "url": proxy_url(direct_url), "thumbnail": proxy_url(direct_url), "raw_url": direct_url, "ext": ext, "width": info.get("width"), "height": info.get("height"), "title": info.get("title", "Image")}], "formats": [], "url": url, "count": 1, "warning": platform_warning})
 
-        # Build format list: ONLY combined (progressive) video streams --
-        # these can be streamed straight through with no FFmpeg merge step.
-        # Audio formats are offered in their native container.
+        # Build format list: combined (progressive) video streams stream
+        # instantly with no processing needed. Separate video-only formats
+        # are also collected (best_video_only / best_audio_only below) so
+        # the frontend can offer a "merge in your browser" option via
+        # ffmpeg.wasm for qualities beyond what's available progressively.
         formats, seen = [], set()
+        video_only_by_ext = {}   # ext -> best video-only format dict
+        audio_only_by_ext = {}   # ext -> best audio-only format dict
+
         for f in info.get("formats", []):
             fid = f.get("format_id", ""); ext = f.get("ext", "") or ""
             vcodec = f.get("vcodec") or "none"; acodec = f.get("acodec") or "none"
@@ -337,11 +383,49 @@ async def api_info(request: Request):
                         seen.add(key)
                         formats.append({"format_id": fid, "type": "audio", "quality": f"{int(effective_abr)}kbps", "ext": ext, "abr": effective_abr, "filesize": format_bytes(filesize) if filesize else "N/A", "label": f"{int(effective_abr)}kbps - {ext.upper()}"})
 
+            # Track best video-only per container family, for browser-merge fallback
+            if has_v and not has_a and height:
+                cur = video_only_by_ext.get(ext)
+                if not cur or height > cur["height"]:
+                    video_only_by_ext[ext] = {"format_id": fid, "height": height, "ext": ext, "fps": int(fps) if fps else None, "filesize": filesize}
+
+            # Track best audio-only per container family
+            if has_a and not has_v:
+                effective_abr = abr or tbr or 0
+                cur = audio_only_by_ext.get(ext)
+                if not cur or effective_abr > cur["abr"]:
+                    audio_only_by_ext[ext] = {"format_id": fid, "ext": ext, "abr": effective_abr}
+
         video_fmts = sorted([f for f in formats if f["type"] == "video"], key=lambda x: (x["height"], x.get("fps") or 0, x.get("tbr") or 0), reverse=True)
         audio_fmts = sorted([f for f in formats if f["type"] == "audio"], key=lambda x: x.get("abr", 0), reverse=True)
 
-        if not video_fmts and detect_content_type(info) == "video":
-            no_progressive_warning = "No single-file video quality available for this content -- only formats that need merging (which requires FFmpeg) were found."
+        # Pick the best browser-mergeable pair: highest-resolution video-only
+        # stream paired with the matching-container-family best audio-only
+        # stream (mp4 pairs with m4a, webm pairs with webm — same convention
+        # yt-dlp itself uses when it merges server-side with FFmpeg).
+        merge_option = None
+        EXT_AUDIO_PAIR = {"mp4": "m4a", "webm": "webm", "mkv": "m4a"}
+        best_video_only = max(video_only_by_ext.values(), key=lambda v: v["height"], default=None) if video_only_by_ext else None
+        if best_video_only:
+            preferred_audio_ext = EXT_AUDIO_PAIR.get(best_video_only["ext"])
+            audio_pick = audio_only_by_ext.get(preferred_audio_ext) if preferred_audio_ext else None
+            if not audio_pick and audio_only_by_ext:
+                audio_pick = max(audio_only_by_ext.values(), key=lambda a: a["abr"])
+            # Only worth offering if it actually beats the best progressive quality
+            best_progressive_height = video_fmts[0]["height"] if video_fmts else 0
+            if audio_pick and best_video_only["height"] > best_progressive_height:
+                out_ext = "mp4" if best_video_only["ext"] in ("mp4", "mkv") else "webm"
+                merge_option = {
+                    "video_format_id": best_video_only["format_id"],
+                    "audio_format_id": audio_pick["format_id"],
+                    "height": best_video_only["height"],
+                    "fps": best_video_only.get("fps"),
+                    "output_ext": out_ext,
+                    "label": f"{best_video_only['height']}p{' ' + str(best_video_only['fps']) + 'fps' if best_video_only.get('fps') else ''} · merges in your browser",
+                }
+
+        if not video_fmts and detect_content_type(info) == "video" and not merge_option:
+            no_progressive_warning = "No downloadable video quality was found for this content."
             platform_warning = (platform_warning + " " + no_progressive_warning) if platform_warning else no_progressive_warning
 
         thumbs = best_thumbnails(info)
@@ -352,7 +436,7 @@ async def api_info(request: Request):
         hours, mins = divmod(mins, 60)
         duration_str = f"{hours}:{mins:02d}:{secs:02d}" if hours else f"{mins}:{secs:02d}"
 
-        return JSONResponse({"title": info.get("title", ""), "thumbnail": proxy_url(best_thumb_raw), "thumbnails": thumbs, "duration": duration_str, "duration_sec": int(duration), "uploader": info.get("uploader") or info.get("channel") or "", "view_count": info.get("view_count"), "platform": info.get("extractor_key", ""), "content_type": content_type, "images": [], "formats": video_fmts + audio_fmts, "url": url, "warning": platform_warning})
+        return JSONResponse({"title": info.get("title", ""), "thumbnail": proxy_url(best_thumb_raw), "thumbnails": thumbs, "duration": duration_str, "duration_sec": int(duration), "uploader": info.get("uploader") or info.get("channel") or "", "view_count": info.get("view_count"), "platform": info.get("extractor_key", ""), "content_type": content_type, "images": [], "formats": video_fmts + audio_fmts, "merge_option": merge_option, "url": url, "warning": platform_warning})
 
     except yt_dlp.utils.DownloadError as e:
         print(f"  [!!] DOWNLOADER /info ERROR [{_detect_platform(url)}]: {e}\n       URL: {url}")

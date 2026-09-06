@@ -787,22 +787,41 @@ function renderQualities(formats){
   document.getElementById('qualityLabel').textContent = isVideo ? 'Quality' : 'Bitrate';
 
   const grid = document.getElementById('qualityGrid');
-  if(list.length === 0){
+  const mergeOpt = (isVideo && currentInfo) ? currentInfo.merge_option : null;
+
+  if(list.length === 0 && !mergeOpt){
     grid.innerHTML = `<div class="section-label">No ${isVideo?'video':'audio'} formats found.</div>`;
     return;
   }
-  grid.innerHTML = list.map((f,i) => `
-    <div class="quality-pill ${i===0?'selected':''}" data-fid="${f.format_id}" data-height="${f.height||''}" onclick="selectQuality(this, '${f.format_id}', ${f.height||'null'})">
-      ${isVideo ? f.quality : f.quality}<span class="pill-size">${f.filesize && f.filesize!=='N/A' ? f.filesize : ''}</span>
+
+  let html = list.map((f,i) => `
+    <div class="quality-pill ${i===0 && !mergeOpt ? 'selected':''}" data-mode="direct" data-fid="${f.format_id}" data-height="${f.height||''}" onclick="selectQuality(this, {mode:'direct', format_id:'${f.format_id}', height:${f.height||'null'}})">
+      ${f.quality}<span class="pill-size">${f.filesize && f.filesize!=='N/A' ? f.filesize : ''}</span>
     </div>
   `).join('');
-  selectedQuality = { format_id:list[0].format_id, height:list[0].height };
+
+  if(mergeOpt){
+    html += `
+      <div class="quality-pill ${list.length===0 ? 'selected':''}" data-mode="merge" onclick='selectQuality(this, {mode:"merge", video_format_id:"${mergeOpt.video_format_id}", audio_format_id:"${mergeOpt.audio_format_id}", output_ext:"${mergeOpt.output_ext}", height:${mergeOpt.height}})'>
+        ${mergeOpt.height}p ⚙<span class="pill-size">merges in browser</span>
+      </div>
+    `;
+  }
+
+  grid.innerHTML = html;
+  if(list.length > 0 && !mergeOpt){
+    selectedQuality = { mode:'direct', format_id:list[0].format_id, height:list[0].height };
+  }else if(mergeOpt){
+    selectedQuality = { mode:'merge', video_format_id: mergeOpt.video_format_id, audio_format_id: mergeOpt.audio_format_id, output_ext: mergeOpt.output_ext, height: mergeOpt.height };
+  }else{
+    selectedQuality = null;
+  }
 }
 
-function selectQuality(el, formatId, height){
+function selectQuality(el, quality){
   document.querySelectorAll('#qualityGrid .quality-pill').forEach(p=>p.classList.remove('selected'));
   el.classList.add('selected');
-  selectedQuality = { format_id: formatId, height: height };
+  selectedQuality = quality;
 }
 
 
@@ -860,11 +879,50 @@ async function startDownload(){
     const fid = selectedQuality ? selectedQuality.format_id : '';
     streamUrl = `${API}/stream/audio?url=${encodeURIComponent(currentInfo.url)}&format_id=${encodeURIComponent(fid||'')}&title=${encodeURIComponent(title)}`;
   }else{
-    if(!selectedQuality || !selectedQuality.format_id){ showError('No streamable quality available for this video — see the note above the quality list.'); return; }
+    if(!selectedQuality){ showError('No streamable quality available for this video.'); return; }
+    if(selectedQuality.mode === 'merge'){
+      await downloadWithBrowserMerge(currentInfo.url, selectedQuality, title);
+      return;
+    }
     streamUrl = `${API}/stream/video?url=${encodeURIComponent(currentInfo.url)}&format_id=${encodeURIComponent(selectedQuality.format_id)}&title=${encodeURIComponent(title)}`;
   }
 
   triggerDownload(streamUrl, title);
+}
+
+// ── Browser-side merge (ffmpeg.wasm) ──────────────
+// Used when the requested quality only exists as separate video-only +
+// audio-only streams (common for 1080p+ on YouTube). The server streams
+// each raw stream through unchanged; the actual merging happens here in
+// the browser via ffmpeg.wasm, so the server never needs FFmpeg installed.
+async function downloadWithBrowserMerge(sourceUrl, quality, title){
+  setBtn('downloadBtn', true, 'Loading merge engine…');
+  hideError();
+  try{
+    const { mergeAV } = await import('/static/merge.js');
+
+    setBtn('downloadBtn', true, 'Downloading video…');
+    const videoUrl = `${API}/stream/video?url=${encodeURIComponent(sourceUrl)}&format_id=${encodeURIComponent(quality.video_format_id)}&title=video`;
+    const videoBuf = await (await fetch(videoUrl)).arrayBuffer();
+
+    setBtn('downloadBtn', true, 'Downloading audio…');
+    const audioUrl = `${API}/stream/audio?url=${encodeURIComponent(sourceUrl)}&format_id=${encodeURIComponent(quality.audio_format_id)}&title=audio`;
+    const audioBuf = await (await fetch(audioUrl)).arrayBuffer();
+
+    setBtn('downloadBtn', true, 'Merging (0%)…');
+    const outExt = quality.output_ext || 'mp4';
+    const blob = await mergeAV(videoBuf, audioBuf, outExt, (pct)=>{
+      setBtn('downloadBtn', true, `Merging (${Math.round(pct*100)}%)…`);
+    });
+
+    const blobUrl = URL.createObjectURL(blob);
+    triggerDownload(blobUrl, `${title}.${outExt}`, true);
+  }catch(e){
+    console.error(e);
+    showError('Browser merge failed — your browser may not support it, or the streams may have expired. Try fetching info again.');
+  }finally{
+    setBtn('downloadBtn', false, 'Download');
+  }
 }
 
 function triggerDownload(url, title, revoke){
