@@ -432,55 +432,6 @@
     color:#fff;
   }
 
-  /* ── Progress ─────────────────────────────────── */
-
-  .progress-block{
-    display:none;
-    margin-top:26px;
-    background:var(--surface);
-    border:1px solid var(--border);
-    border-radius:var(--radius-lg);
-    padding:24px;
-  }
-  .progress-block.show{ display:block; }
-
-  .progress-top{
-    display:flex;
-    justify-content:space-between;
-    align-items:baseline;
-    margin-bottom:14px;
-  }
-  .progress-step{ font-size:15px; color:var(--text-dim); }
-  .progress-pct{
-    font-size:28px;
-    font-weight:650;
-    font-variant-numeric:tabular-nums;
-    letter-spacing:-0.02em;
-  }
-
-  .progress-track{
-    height:6px;
-    background:rgba(255,255,255,0.08);
-    border-radius:100px;
-    overflow:hidden;
-  }
-  .progress-fill{
-    height:100%;
-    width:0%;
-    background:var(--accent);
-    border-radius:100px;
-    transition: width .3s ease;
-  }
-
-  .progress-detail{
-    display:flex;
-    gap:16px;
-    margin-top:12px;
-    font-size:13px;
-    color:var(--text-faint);
-    font-variant-numeric:tabular-nums;
-  }
-
   /* ── Done state ───────────────────────────────── */
 
   .done-block{
@@ -645,28 +596,10 @@
     <div class="quality-section" id="qualitySection">
       <div class="section-label" id="qualityLabel">Quality</div>
       <div class="quality-grid" id="qualityGrid"></div>
-      <div class="container-row" id="containerRow" style="display:none">
-        <div class="container-chip selected" data-fmt="mp4">.mp4</div>
-        <div class="container-chip" data-fmt="mkv">.mkv</div>
-        <div class="container-chip" data-fmt="webm">.webm</div>
-      </div>
     </div>
 
     <div class="download-cta">
       <button class="btn btn-accent btn-full" id="downloadBtn" onclick="startDownload()">Download</button>
-    </div>
-  </div>
-
-  <!-- Progress -->
-  <div class="progress-block" id="progressBlock">
-    <div class="progress-top">
-      <span class="progress-step" id="progressStep">Starting…</span>
-      <span class="progress-pct" id="progressPct">0%</span>
-    </div>
-    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
-    <div class="progress-detail">
-      <span id="progressSpeed"></span>
-      <span id="progressEta"></span>
     </div>
   </div>
 
@@ -701,9 +634,7 @@ const API = "/api/downloader";
 let currentInfo = null;
 let currentTab = "video";
 let selectedQuality = null;   // {format_id, height, label} for video, {format_id, label} for audio
-let selectedContainer = "mp4";
 let selectedImages = new Set();
-let pollTimer = null;
 let history = [];
 
 // ── Status check ──────────────────────────────────
@@ -735,9 +666,15 @@ function showWarning(msg){
 }
 function hideWarning(){ document.getElementById('warningAlert').classList.remove('show'); }
 
+function setBtn(id, disabled, label){
+  const btn = document.getElementById(id);
+  if(!btn) return;
+  btn.disabled = disabled;
+  if(label !== undefined) btn.textContent = label;
+}
+
 function resetAll(){
   document.getElementById('result').classList.remove('show');
-  document.getElementById('progressBlock').classList.remove('show');
   document.getElementById('doneBlock').classList.remove('show');
   document.getElementById('urlInput').value = '';
   currentInfo = null;
@@ -831,7 +768,6 @@ function switchTab(tab){
 
   if(tab === 'thumbnail'){
     document.getElementById('qualityLabel').textContent = 'Thumbnail';
-    document.getElementById('containerRow').style.display = 'none';
     const grid = document.getElementById('qualityGrid');
     grid.innerHTML = `<div class="quality-pill selected" onclick="selectThumbnail(this)">Best available</div>`;
     selectedQuality = {thumbnail:true};
@@ -849,7 +785,6 @@ function renderQualities(formats){
   const isVideo = currentTab === 'video';
   const list = formats.filter(f => isVideo ? f.type === 'video' : f.type === 'audio');
   document.getElementById('qualityLabel').textContent = isVideo ? 'Quality' : 'Bitrate';
-  document.getElementById('containerRow').style.display = isVideo ? 'flex' : 'none';
 
   const grid = document.getElementById('qualityGrid');
   if(list.length === 0){
@@ -870,106 +805,84 @@ function selectQuality(el, formatId, height){
   selectedQuality = { format_id: formatId, height: height };
 }
 
-document.querySelectorAll('.container-chip').forEach(chip=>{
-  chip.addEventListener('click', ()=>{
-    document.querySelectorAll('.container-chip').forEach(c=>c.classList.remove('selected'));
-    chip.classList.add('selected');
-    selectedContainer = chip.dataset.fmt;
-  });
-});
 
 // ── Download ──────────────────────────────────────
+// No server-side task/progress tracking anymore — each of these hits a
+// streaming endpoint directly. The server pipes bytes straight through
+// from the source, and the browser's own download manager takes over
+// from there (shown via a native <a download> click), so there's no
+// polling loop to keep in sync with server state.
+
 async function startDownload(){
   if(!currentInfo) return;
   hideError();
 
   const isGallery = currentInfo.content_type === 'gallery' || currentInfo.content_type === 'image';
-  let body = { url: currentInfo.url, title: currentInfo.title };
+  const title = currentInfo.title || 'download';
+  let streamUrl = '';
+  let displayName = '';
 
   if(isGallery){
     if(selectedImages.size === 0){ showError('Select at least one image.'); return; }
-    body.media_type = 'image';
-    body.image_urls = (currentInfo.images || [])
+    const imageUrls = (currentInfo.images || [])
       .filter(img => selectedImages.has(img.index))
       .map(img => img.url);
-  }else if(currentTab === 'thumbnail'){
-    body.media_type = 'thumbnail';
-    body.thumb_url = currentInfo.thumbnail;
-  }else if(currentTab === 'audio'){
-    body.media_type = 'audio';
-    body.format = 'mp3';
-    body.format_id = selectedQuality ? selectedQuality.format_id : '';
-  }else{
-    body.media_type = 'video';
-    body.format = selectedContainer;
-    body.format_id = selectedQuality ? selectedQuality.format_id : '';
-    body.height = selectedQuality ? selectedQuality.height : '';
-  }
 
-  document.getElementById('result').classList.remove('show');
-  document.getElementById('progressBlock').classList.add('show');
-  document.getElementById('progressFill').style.width = '0%';
-  document.getElementById('progressPct').textContent = '0%';
-  document.getElementById('progressStep').textContent = 'Starting…';
-
-  try{
-    const r = await fetch(`${API}/download`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body)
-    });
-    const d = await r.json();
-    if(!r.ok || d.error){ showError(d.error || 'Download failed to start.'); document.getElementById('progressBlock').classList.remove('show'); return; }
-    pollProgress(d.task_id);
-  }catch(e){
-    showError('Network error while starting download.');
-    document.getElementById('progressBlock').classList.remove('show');
-  }
-}
-
-function pollProgress(taskId){
-  clearInterval(pollTimer);
-  pollTimer = setInterval(async ()=>{
+    if(imageUrls.length === 1){
+      streamUrl = `${API}/stream/thumbnail?url=${encodeURIComponent(imageUrls[0])}&title=${encodeURIComponent(title)}`;
+      triggerDownload(streamUrl, title);
+      return;
+    }
+    // Multiple images: POST to build a zip, since this needs a body — fetch as blob.
+    setBtn('downloadBtn', true, 'Preparing…');
     try{
-      const r = await fetch(`${API}/progress/${taskId}`);
-      const d = await r.json();
-      if(d.status === 'not_found'){ clearInterval(pollTimer); return; }
+      const r = await fetch(`${API}/stream/gallery`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ image_urls: imageUrls, title })
+      });
+      if(!r.ok){ const d = await r.json().catch(()=>({})); showError(d.error || 'Could not build the zip.'); return; }
+      const blob = await r.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      triggerDownload(blobUrl, `${title}_images.zip`, true);
+      addHistory(`${title}_images.zip`, title);
+    }catch(e){
+      showError('Network error while downloading images.');
+    }finally{
+      setBtn('downloadBtn', false, 'Download');
+    }
+    return;
+  }
 
-      const pct = d.percent || 0;
-      document.getElementById('progressFill').style.width = pct + '%';
-      document.getElementById('progressPct').textContent = Math.round(pct) + '%';
-      document.getElementById('progressStep').textContent = d.step || (d.status === 'downloading' ? 'Downloading…' : d.status);
-      document.getElementById('progressSpeed').textContent = d.speed ? `↓ ${d.speed}` : '';
-      document.getElementById('progressEta').textContent = d.eta ? `ETA ${formatEta(d.eta)}` : '';
+  if(currentTab === 'thumbnail'){
+    streamUrl = `${API}/stream/thumbnail?url=${encodeURIComponent(currentInfo.thumbnail)}&title=${encodeURIComponent(title)}`;
+  }else if(currentTab === 'audio'){
+    const fid = selectedQuality ? selectedQuality.format_id : '';
+    streamUrl = `${API}/stream/audio?url=${encodeURIComponent(currentInfo.url)}&format_id=${encodeURIComponent(fid||'')}&title=${encodeURIComponent(title)}`;
+  }else{
+    if(!selectedQuality || !selectedQuality.format_id){ showError('No streamable quality available for this video — see the note above the quality list.'); return; }
+    streamUrl = `${API}/stream/video?url=${encodeURIComponent(currentInfo.url)}&format_id=${encodeURIComponent(selectedQuality.format_id)}&title=${encodeURIComponent(title)}`;
+  }
 
-      if(d.status === 'done'){
-        clearInterval(pollTimer);
-        document.getElementById('progressBlock').classList.remove('show');
-        showDone(taskId, d);
-      }else if(d.status === 'error'){
-        clearInterval(pollTimer);
-        document.getElementById('progressBlock').classList.remove('show');
-        showError(d.message || 'Download failed.');
-        document.getElementById('result').classList.add('show');
-      }else if(d.status === 'cancelled'){
-        clearInterval(pollTimer);
-        document.getElementById('progressBlock').classList.remove('show');
-      }
-    }catch(e){ /* keep polling */ }
-  }, 800);
+  triggerDownload(streamUrl, title);
 }
 
-function showDone(taskId, d){
-  document.getElementById('doneSub').textContent = `${d.filename || 'file'} · ${d.filesize || ''}`;
-  const saveBtn = document.getElementById('doneSaveBtn');
-  saveBtn.href = `${API}/file/${taskId}`;
-  saveBtn.download = d.filename || '';
+function triggerDownload(url, title, revoke){
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = title;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  if(revoke) setTimeout(()=>URL.revokeObjectURL(url), 30000);
+
+  addHistory(title, title);
+  document.getElementById('doneSub').textContent = 'Your browser is downloading it now.';
+  document.getElementById('doneSaveBtn').href = url;
+  document.getElementById('doneSaveBtn').download = title;
+  document.getElementById('doneSaveBtn').style.display = revoke ? 'none' : 'inline-flex';
+  document.getElementById('result').classList.remove('show');
   document.getElementById('doneBlock').classList.add('show');
-
-  addHistory(d.filename || 'download', d.title || '');
-
-  // cleanup server temp file shortly after — browser has already started the save
-  setTimeout(()=>{ fetch(`${API}/cleanup/${taskId}`, {method:'DELETE'}).catch(()=>{}); }, 15000);
 }
 
 // ── History (session only) ────────────────────────
@@ -1001,12 +914,6 @@ function timeAgo(date){
   if(s < 3600) return `${Math.floor(s/60)}m ago`;
   if(s < 86400) return `${Math.floor(s/3600)}h ago`;
   return date.toLocaleDateString();
-}
-function formatEta(seconds){
-  seconds = Math.max(0, Math.round(seconds));
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${String(s).padStart(2,'0')}`;
 }
 function clearHistory(){ history = []; renderHistory(); }
 

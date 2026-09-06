@@ -8,8 +8,6 @@ yt-dlp
 requests
 
 # ── Notes ──────────────────────────────────
-# FFmpeg must be installed separately (system binary) — required for
-# merging video+audio streams and for audio-format conversion:
-#   Windows: https://www.gyan.dev/ffmpeg/builds/
-#   Linux:   sudo apt install ffmpeg
-#   macOS:   brew install ffmpeg
+# FFmpeg is intentionally NOT required. This app streams media directly
+# from the source to the browser without merging or transcoding, which
+# keeps it dependency-free and deployable on serverless platforms.

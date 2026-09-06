@@ -14,7 +14,13 @@ import threading
 
 from routers import downloader
 
-os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp", "downloader"), exist_ok=True)
+# Vercel sets this env var automatically inside every serverless function.
+IS_VERCEL = bool(os.environ.get("VERCEL"))
+
+# No temp/downloader folder needed anymore — the downloader router streams
+# bytes straight from source to client and never touches disk. This also
+# means the app behaves identically whether it's run locally, on a VPS, or
+# on serverless platforms like Vercel.
 
 
 def _auto_update_ytdlp():
@@ -25,7 +31,17 @@ def _auto_update_ytdlp():
     yt-dlp inside that venv, not system Python.
     YouTube (and other platforms) change frequently and can break older
     yt-dlp versions, so keeping it current avoids most download failures.
+
+    Skipped entirely on Vercel: the filesystem there is read-only outside
+    /tmp, pip can't write to site-packages at runtime, and even if it
+    somehow could, nothing installed at runtime survives past that one
+    invocation. On Vercel, yt-dlp is updated by bumping the version in
+    requirements.txt and redeploying — that's what actually persists.
     """
+    if IS_VERCEL:
+        print("  [...] Running on Vercel — skipping runtime yt-dlp update.")
+        print("        Bump yt-dlp in requirements.txt and redeploy instead.")
+        return
     try:
         print("  [...] Checking for yt-dlp updates...")
         result = subprocess.run(
@@ -93,5 +109,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=5556,
         reload=True,
-        reload_excludes=["venv/*", "**/venv/*", "temp/*"],
+        reload_excludes=["venv/*", "**/venv/*"],
     )

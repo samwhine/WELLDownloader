@@ -6,19 +6,29 @@ Built with FastAPI (Python) on the backend and a single-page vanilla HTML/CSS/JS
 
 **Author:** [Samuel Extehines Heydemans](https://github.com/samwhine)
 
+## How it works
+
+The server never saves files to disk. It resolves the real media URL through yt-dlp, then streams the bytes straight through to your browser in the same request — your browser's own download manager shows the progress. This is what makes the app work the same way whether it's running on a normal server or on a serverless platform.
+
+The trade-off: merging separate video+audio streams or converting audio to MP3 both need FFmpeg, which serverless platforms don't provide. So:
+
+- **Video** — only qualities that are already a single combined stream are offered (no merge step needed). Depending on the platform this is usually capped somewhere between 360p–720p.
+- **Audio** — served in its original container (m4a/webm/opus) rather than transcoded to MP3.
+
+If you run this on your own server with FFmpeg installed, you could extend it to merge/transcode — the current version deliberately keeps things dependency-free so it runs anywhere.
+
 ## Features
 
 - Paste a URL, fetch metadata (title, thumbnail, duration, available qualities)
-- Download video (MP4/MKV/WEBM), audio-only, or just the thumbnail
-- Gallery / multi-image post support (e.g. Twitter/X threads, Reddit galleries)
-- Live download progress with speed and ETA
+- Download video, audio, thumbnails, or full image galleries (Twitter/X threads, Reddit galleries, etc.)
+- Multi-image downloads are zipped in memory and streamed as one file
 - Download history (session-based)
-- Auto-updates yt-dlp on every startup, so it keeps working as platforms change their sites
+- Works locally, on a VPS, or on serverless platforms like Vercel with zero code changes
 
 ## Requirements
 
 - Python 3.10+
-- [FFmpeg](https://ffmpeg.org/download.html) installed and available on your system PATH (needed to merge separate video/audio streams and for audio format conversion)
+- FFmpeg is **not required** — this app intentionally avoids needing it at all
 
 ## Setup
 
@@ -58,14 +68,15 @@ well-downloader/
 
 ## Notes
 
-- yt-dlp is auto-updated in the background on every app startup, since streaming platforms frequently change their sites and break older extractor versions.
+- yt-dlp auto-updates on startup when run locally or on a VPS. On serverless platforms (where the filesystem is read-only), this is automatically skipped — update yt-dlp there by bumping the version in `requirements.txt` and redeploying instead.
 - DRM-protected platforms (Spotify, Apple Music, Netflix, Disney+, etc.) are intentionally blocked — this tool works only with content that isn't DRM-encrypted.
-- Downloaded files are stored temporarily under `temp/downloader/<task_id>/` and can be cleaned up via the `/api/downloader/cleanup/{task_id}` endpoint (the frontend calls this automatically).
+- Nothing is ever written to disk, so there's no cleanup job needed and no risk of leftover files piling up.
 
 ## Deployment
 
-This app needs a server that stays running and supports installing system binaries (FFmpeg) — **not** a serverless platform like Vercel, since downloads are long-running, stateful (in-memory progress tracking), and require FFmpeg. Good fits:
+Because it never writes to disk and never needs FFmpeg, this runs fine on:
 
+- [Vercel](https://vercel.com)
 - [Railway](https://railway.app)
 - [Render](https://render.com)
 - Any VPS (DigitalOcean, Contabo, etc.)
