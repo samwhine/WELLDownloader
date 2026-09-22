@@ -1,22 +1,31 @@
 WELL Downloader
 ================
-1. Install Python 3.10+ and FFmpeg.
-2. Run INSTALL.bat to create the venv and install requirements.txt.
+
+1. Install Python 3.10 or newer and FFmpeg.
+2. Run INSTALL.bat to create the virtual environment and install requirements.txt.
 3. Run WELL_DOWNLOADER_START.bat to start the server.
 4. Open http://localhost:5555.
 
-If the project is started through WELLLauncher, use START_WITH_WELL_LAUNCHER.bat. It does not use pause so WELLLauncher can monitor the process and server exit code.
+If the project is started through WELLLauncher, use START_WITH_WELL_LAUNCHER.bat. It does not pause so WELLLauncher can monitor the process and server exit code.
 
 Update yt-dlp:
 - Stop the WELL Downloader server first.
 - Run UPDATE_YTDLP.bat from the project folder.
-- After it finishes, run WELL_DOWNLOADER_START.bat again.
-- The update banner stays visible until yt-dlp in the venv is up to date.
+- Start WELL_DOWNLOADER_START.bat again after the update finishes.
 
 Cache:
 - Temporary files are stored in temp\downloader.
-- Finished and failed tasks are cleaned automatically after 4 hours.
-- To clear all cache manually, stop the server and run CLEAR_CACHE.bat.
+- Completed and failed tasks are cleaned automatically after four hours.
+- Stop the server and run CLEAR_CACHE.bat to clear the cache manually.
 
-Features: YouTube, TikTok video and carousel/photo posts, public Telegram posts, public Pinterest pins, and other public platforms supported by yt-dlp.
-Instagram is not supported because it usually requires cookies/login. Spotify and other DRM services are also not supported.
+Supported content:
+- YouTube, TikTok video and carousel/photo posts, public Telegram posts, public Pinterest pins, and other public platforms supported by yt-dlp.
+- Instagram may fail because most content requires cookies or login.
+- Spotify and other DRM-protected services are not supported.
+
+Format sizes:
+- The interface shows an exact size when the source provides one.
+- Otherwise it shows an estimate based on bitrate and duration.
+- The highest available video quality is selected automatically.
+
+Use responsibly and download only content you are authorized to save.

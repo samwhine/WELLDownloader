@@ -55,6 +55,12 @@ def format_bytes(value):
         if value >= div: return f"{value/div:.2f} {unit}" if unit in ("GB","MB") else f"{value/div:.0f} {unit}"
     return "0 B"
 
+def estimated_size(tbr_kbps, duration_seconds):
+    """Estimate a media size when yt-dlp cannot expose a concrete filesize."""
+    if not tbr_kbps or not duration_seconds:
+        return None
+    return format_bytes((float(tbr_kbps) * 1000 / 8) * float(duration_seconds))
+
 def safe_name(name): return (re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip('. ')[:120] or "download")
 def is_image_url(url): return any(url.split('?')[0].lower().endswith(x) for x in ('.jpg','.jpeg','.png','.gif','.webp','.bmp','.tiff'))
 def proxy_url(url): return f"/api/downloader/proxy-image?url={urllib.parse.quote(url,safe='')}" if url else ""
@@ -127,7 +133,7 @@ def _cache_reaper():
 threading.Thread(target=_cache_reaper, daemon=True).start()
 
 @router.get('/status')
-async def status(): return {'server':'WELL Downloader','version':'2.0.0','ffmpeg_found':shutil.which('ffmpeg') is not None}
+async def status(): return {'server':'WELL Downloader','ffmpeg_found':shutil.which('ffmpeg') is not None}
 
 @router.get('/yt-dlp-version')
 async def ytdlp_version():
@@ -149,7 +155,18 @@ async def ytdlp_version():
     return {'current': current, 'latest': latest, 'outdated': outdated, 'check_error': _version_cache.get('error')}
 
 @router.get('/rules')
-async def rules(): return {'supported':['YouTube','TikTok video','TikTok photo/carousel','Telegram public posts','Pinterest public pins','yt-dlp supported public platforms'],'blocked':list(BLOCKED_PLATFORMS)}
+async def rules():
+    return {
+        'supported': [
+            'YouTube', 'TikTok video', 'TikTok photo/carousel', 'X / Twitter',
+            'Reddit', 'SoundCloud', 'Vimeo', 'Bilibili', 'Telegram public posts',
+            'Pinterest public pins', 'Dailymotion', 'Twitch public media',
+            'Rumble', 'and other public yt-dlp extractors'
+        ],
+        'media_types': ['video', 'audio', 'image', 'photo carousel/gallery', 'thumbnail'],
+        'blocked': list(BLOCKED_PLATFORMS),
+        'availability': 'Best effort for public URLs; individual posts can still fail because of login, privacy, region, rate limits, or extractor changes.'
+    }
 
 @router.get('/proxy-image')
 async def proxy_image(url:str=''):
@@ -175,17 +192,19 @@ async def info_route(request:Request):
         formats=data_full.get('formats') or [];has_video=any((f.get('vcodec') or 'none')!='none' and f.get('height') for f in formats)
         if not formats and (data_full.get('ext') in ('jpg','jpeg','png','webp','gif') or is_image_url(data_full.get('url',''))):
             raw=data_full.get('url','');img=image_entry({**data_full,'url':raw},0);return {'title':data_full.get('title','Image'),'thumbnail':proxy_url(raw),'platform':data_full.get('extractor_key',''),'content_type':'image','images':[img],'count':1,'formats':[],'thumbnails':[],'url':url}
-        out=[];seen=set()
+        out=[];seen=set(); duration_seconds=int(data_full.get('duration') or 0)
         for f in formats:
             v=(f.get('vcodec') or 'none')!='none';a=(f.get('acodec') or 'none')!='none';h=f.get('height');abr=f.get('abr') or f.get('tbr')
             if v and h:
                 key=(h,f.get('fps'),f.get('ext')); 
-                if key not in seen: seen.add(key);out.append({'format_id':f.get('format_id',''),'type':'video','height':h,'quality':f'{h}p','label':f"{h}p · {(f.get('ext') or '').upper()}"})
+                size = f.get('filesize') or f.get('filesize_approx')
+                if key not in seen: seen.add(key);out.append({'format_id':f.get('format_id',''),'type':'video','height':h,'quality':f'{h}p','label':f"{h}p · {(f.get('ext') or '').upper()}",'filesize':format_bytes(size) if size else estimated_size(f.get('tbr'), duration_seconds),'filesize_bytes':size or 0,'tbr':f.get('tbr'),'fps':f.get('fps')})
             elif a and abr:
                 key=('a',int(abr),f.get('ext'))
-                if key not in seen: seen.add(key);out.append({'format_id':f.get('format_id',''),'type':'audio','abr':abr,'label':f"{int(abr)}kbps · {(f.get('ext') or '').upper()}"})
+                size = f.get('filesize') or f.get('filesize_approx')
+                if key not in seen: seen.add(key);out.append({'format_id':f.get('format_id',''),'type':'audio','abr':abr,'label':f"{int(abr)}kbps · {(f.get('ext') or '').upper()}",'filesize':format_bytes(size) if size else estimated_size(abr, duration_seconds),'filesize_bytes':size or 0,'tbr':f.get('tbr')})
         raw=(best_thumbnails(data_full,1) or [{'raw_url':data_full.get('thumbnail','')}])[0].get('raw_url','')
-        dur=int(data_full.get('duration') or 0);return {'title':data_full.get('title',''),'thumbnail':proxy_url(raw),'thumbnails':best_thumbnails(data_full),'duration':f'{dur//60}:{dur%60:02d}','uploader':data_full.get('uploader') or data_full.get('channel') or '','platform':data_full.get('extractor_key',''),'content_type':'video' if has_video else 'audio_only','images':[],'formats':out,'url':url}
+        return {'title':data_full.get('title',''),'thumbnail':proxy_url(raw),'thumbnails':best_thumbnails(data_full),'duration':f'{duration_seconds//60}:{duration_seconds%60:02d}','duration_sec':duration_seconds,'uploader':data_full.get('uploader') or data_full.get('channel') or '','platform':data_full.get('extractor_key',''),'content_type':'video' if has_video else 'audio_only','images':[],'formats':out,'url':url}
     except yt_dlp.utils.DownloadError as e:return JSONResponse({'error':friendly_error(str(e),url)},status_code=400)
     except Exception as e:return JSONResponse({'error':f'Failed to fetch info: {e}'},status_code=500)
 
@@ -210,7 +229,9 @@ async def download_route(request:Request):
                 elif paths:path=paths[0]
                 else:raise Exception('No images selected')
             else:
-                fmt='bestaudio/best' if media=='audio' else (f"{data.get('format_id')}+bestaudio/best" if data.get('format_id') else 'bestvideo+bestaudio/best');opts=build_opts(url,{'format':fmt,'outtmpl':os.path.join(folder,'%(title)s.%(ext)s'),'progress_hooks':[progress_hook(task)],'merge_output_format':'mp4' if media=='video' else None,'postprocessors':[{'key':'FFmpegExtractAudio','preferredcodec':'mp3','preferredquality':'0'}] if media=='audio' else []});
+                output_format=data.get('format') if data.get('format') in {'mp4','mkv','webm'} else 'mp4'
+                audio_format=data.get('format') if data.get('format') in {'wav','flac','m4a','mp3','ogg','opus'} else 'mp3'
+                fmt='bestaudio/best' if media=='audio' else (f"{data.get('format_id')}+bestaudio/best" if data.get('format_id') else 'bestvideo+bestaudio/best');opts=build_opts(url,{'format':fmt,'outtmpl':os.path.join(folder,'%(title)s.%(ext)s'),'progress_hooks':[progress_hook(task)],'merge_output_format':output_format if media=='video' else None,'postprocessors':[{'key':'FFmpegExtractAudio','preferredcodec':audio_format,'preferredquality':'0'}] if media=='audio' else []});
                 with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([url])
                 files=[os.path.join(folder,f) for f in os.listdir(folder) if not f.endswith(('.part','.ytdl'))];path=max(files,key=os.path.getsize)
             progress_store[task].update(status='done',percent=100,filename=os.path.basename(path),filepath=path,filesize=format_bytes(os.path.getsize(path)),title=title,_ts=time.time())

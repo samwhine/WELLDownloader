@@ -3,8 +3,8 @@ setlocal
 cd /d "%~dp0"
 
 if not exist "%~dp0venv\Scripts\python.exe" (
-  echo [ERROR] WELL Downloader venv belum ditemukan.
-  echo Jalankan INSTALL.bat terlebih dahulu.
+  echo [ERROR] WELL Downloader virtual environment was not found.
+  echo Run INSTALL.bat first.
   exit /b 1
 )
 

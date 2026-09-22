@@ -1,7 +1,7 @@
 {
   "name": "WELL Downloader",
   "short_name": "WELL Downloader",
-  "description": "Download video, audio, thumbnail, dan photo posts dari platform publik yang didukung.",
+  "description": "Download video, audio, thumbnails, and photo posts from supported public platforms.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#09111f",

@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -8,12 +9,13 @@ from fastapi.staticfiles import StaticFiles
 from routers import downloader
 
 BASE_DIR = Path(__file__).resolve().parent
+PUBLIC_SITE_URL = os.getenv("PUBLIC_SITE_URL", "https://well.creativelegacy.my.id").rstrip("/")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("\n====================================")
-    print("        WELL Downloader v2.0")
+    print("        WELL Downloader")
     print("====================================")
     print("App  -> http://localhost:5555")
     print("Docs -> http://localhost:5555/docs")
@@ -24,8 +26,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="WELL Downloader API",
-    description="Downloader untuk video, audio, thumbnail, dan post foto dari platform publik yang didukung.",
-    version="2.0.0",
+    description="Download video, audio, thumbnails, and photo posts from supported public platforms.",
     lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
@@ -49,7 +50,7 @@ async def robots():
 
 @app.get("/sitemap.xml", response_class=PlainTextResponse)
 async def sitemap(request: Request):
-    base = str(request.base_url).rstrip("/")
+    base = PUBLIC_SITE_URL or str(request.base_url).rstrip("/")
     return PlainTextResponse(
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'

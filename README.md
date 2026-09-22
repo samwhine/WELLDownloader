@@ -1,103 +1,65 @@
 # WELL Downloader
 
-WELL Downloader adalah downloader media berbasis Python untuk video, audio, thumbnail, dan post foto dari platform publik yang didukung. Aplikasi ini mempertahankan engine `yt-dlp`, menambahkan dukungan gallery untuk TikTok photo/carousel, serta menyediakan halaman Rules / Help agar batasan platform terlihat jelas.
+WELL Downloader is a local Python media downloader for public video, audio, image, thumbnail, and photo-carousel content. It uses `yt-dlp` for extraction, FastAPI for the backend API, and FFmpeg for media merging and conversion.
 
-> **Important:** WELL Downloader bekerja sebagai aplikasi lokal pada komputer yang menjalankan Python dan FFmpeg. Aplikasi ini **tidak dapat dijalankan sebagai full downloader langsung di Vercel**. Vercel hanya cocok untuk demo UI atau halaman presentasi WELL Downloader.
+> **Important:** Run the full downloader on a machine with Python, FFmpeg, writable storage, and network access. Vercel is suitable for the static UI or a demo, but it is not the recommended runtime for large downloads or background media processing.
 
-## Author
+## Supported websites
 
-**Samuel Extehines Heydemans**  
-GitHub: [@samwhine](https://github.com/samwhine)
+| Website or source | Support | Notes |
+| --- | --- | --- |
+| YouTube | Supported | Single videos and other public media supported by `yt-dlp`. Playlist URLs are intentionally reduced to a single-video flow. |
+| TikTok | Supported | Public videos and photo/carousel posts are handled separately. |
+| X / Twitter | Best effort | Public posts may work; login-only or private posts may fail. |
+| Reddit | Best effort | The post must be publicly accessible. |
+| SoundCloud | Best effort | Availability depends on the extractor and track access rules. |
+| Vimeo, Bilibili | Best effort | Public content only; region restrictions may apply. |
+| Telegram public posts | Supported when public | Private channels and login-only content are not supported. |
+| Pinterest public pins | Supported when public | Public image and video pins can be extracted when available. |
+| Dailymotion, Twitch, Rumble | Best effort | Public media supported when the installed `yt-dlp` extractor can access the URL. |
+| Other `yt-dlp` extractors | Best effort | Actual support depends on the installed `yt-dlp` release. |
 
-## Supported media
+## Unsupported websites
 
-WELL Downloader dapat mencoba mengunduh konten publik dari YouTube, TikTok, Telegram public posts, Pinterest public pins, X/Twitter, Reddit, SoundCloud, Vimeo, Bilibili, serta platform publik lain yang tersedia melalui extractor `yt-dlp`.
+| Website or source | Reason |
+| --- | --- |
+| Instagram | Most content requires cookies or login. Some public Reels may work, but Stories and private content are expected to fail. |
+| Spotify | DRM-protected streams and login requirements prevent extraction. |
+| Apple Music | FairPlay DRM-protected streams are not supported. |
+| Deezer and Tidal | Login and DRM restrictions prevent reliable extraction. |
+| Netflix, Prime Video, Disney+, HBO / Max, Crunchyroll | DRM-protected streaming services are not supported. Use the service's official offline feature instead. |
 
-TikTok video dan TikTok photo/carousel diproses berbeda. Video akan ditampilkan sebagai pilihan kualitas video. Carousel atau photo post akan ditampilkan sebagai gallery sehingga foto dapat dipilih satu per satu atau dikemas menjadi ZIP.
+Platform behavior can change when a service changes its access rules or when an extractor is updated. Download only content you are allowed to save.
 
-Instagram sengaja tidak didukung karena sebagian besar konten membutuhkan cookies atau login. Spotify dan layanan ber-DRM seperti Netflix, Apple Music, Disney+, Prime Video, Max, Tidal, Deezer, dan Crunchyroll juga tidak didukung.
+## Format and size behavior
 
-Gunakan aplikasi hanya untuk konten yang memang boleh kamu simpan. Dukungan aktual dapat berubah jika sebuah platform mengubah sistem akses atau extractor-nya.
+When a URL is pasted, the frontend automatically fetches metadata. The API returns a concrete file size when the source exposes one. Otherwise, it estimates size from bitrate and duration and displays the value with `~`. The highest available video quality is selected automatically, while detected resolutions remain selectable.
+
+Video downloads combine the selected video format with the best available audio track and merge into `.mp4`, `.mkv`, or `.webm` when FFmpeg is available. Audio downloads use the selected source quality and convert to the chosen output format. TikTok photo/carousel posts are shown as a selectable gallery; multiple selected images are packaged into a ZIP archive.
 
 ## Requirements
 
-- Python 3.10 atau lebih baru
-- FFmpeg yang tersedia di system `PATH`
-- Koneksi internet untuk memasang dependency dan mengambil metadata media
-- Windows, macOS, atau Linux
+- Python 3.10 or newer
+- FFmpeg available on the system `PATH`
+- Internet access
+- Windows, macOS, or Linux
 
 ## Windows quick start
 
-Pertama kali, jalankan installer berikut dari folder project:
+1. Run `INSTALL.bat` from the project folder.
+2. Run `WELL_DOWNLOADER_START.bat`.
+3. Open <http://localhost:5555>.
 
-```text
-INSTALL.bat
-```
-
-`INSTALL.bat` akan membuat virtual environment lokal pada folder `venv`, mengaktifkannya, lalu memasang semua dependency dari `requirements.txt`. Proses ini hanya perlu dilakukan saat instalasi awal atau ketika environment perlu dibuat ulang.
-
-Setelah instalasi selesai, jalankan:
-
-```text
-WELL_DOWNLOADER_START.bat
-```
-
-Launcher tersebut hanya mengaktifkan `venv` dan menjalankan server di:
-
-```text
-http://localhost:5555
-```
-
-Buka alamat tersebut di browser setelah server berjalan.
-
-### Start melalui WELLLauncher
-
-Jika project dijalankan dari [WELLLauncher](https://github.com/samwhine/WELLLauncher), gunakan script khusus berikut:
-
-```text
-START_WITH_WELL_LAUNCHER.bat
-```
-
-Script ini sengaja **tidak memakai `pause`**. WELLLauncher perlu mempertahankan proses server, membaca output terminal, dan menerima exit code ketika server berhenti. Untuk pemakaian manual, `WELL_DOWNLOADER_START.bat` tetap tersedia dan memakai `pause` agar jendela terminal tidak langsung tertutup ketika proses selesai.
-
-## Cache dan storage
-
-File hasil download sementara disimpan di `temp/downloader/`. Task yang sudah selesai atau gagal akan dibersihkan otomatis setelah **4 jam**. Task yang masih berjalan tidak disentuh oleh cleanup.
-
-Durasi tersebut dapat diubah dengan environment variable berikut sebelum server dijalankan:
-
-```text
-WELL_DOWNLOAD_TTL_HOURS=2
-```
-
-Untuk membersihkan seluruh cache secara manual, matikan server terlebih dahulu, lalu jalankan:
-
-```text
-CLEAR_CACHE.bat
-```
-
-Jangan menjalankan script tersebut ketika ada download aktif karena file hasil yang sedang diproses akan ikut dihapus.
-
-## Update yt-dlp
-
-WELL Downloader memeriksa versi `yt-dlp` saat website dibuka. Jika versi pada virtual environment tertinggal, banner update akan tetap muncul.
-
-Matikan server terlebih dahulu, kemudian jalankan:
-
-```text
-UPDATE_YTDLP.bat
-```
-
-Script tersebut mengaktifkan `venv` project dan menjalankan upgrade menggunakan interpreter yang sama dengan server. Setelah selesai, jalankan kembali `WELL_DOWNLOADER_START.bat`.
+For [WELLLauncher](https://github.com/samwhine/WELLLauncher), use `START_WITH_WELL_LAUNCHER.bat` so the launcher can monitor the server process.
 
 ## Manual start
 
-Jika ingin menjalankan secara manual:
-
 ```bash
 python -m venv venv
+
 # Windows
-venv\Scripts\activate
+venv\\Scripts\\activate
+
 # macOS/Linux
 source venv/bin/activate
 
@@ -105,11 +67,45 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-FFmpeg harus dipasang terpisah. Pastikan perintah berikut berhasil sebelum menggunakan downloader:
+Verify FFmpeg with:
 
 ```bash
 ffmpeg -version
 ```
+
+## Cache and updates
+
+Temporary files are stored in `temp/downloader/`. Completed and failed tasks are cleaned automatically after four hours. Change the retention period before starting the server with:
+
+```text
+WELL_DOWNLOAD_TTL_HOURS=2
+```
+
+Stop the server before running `CLEAR_CACHE.bat`. To update `yt-dlp`, stop the server, run `UPDATE_YTDLP.bat`, and restart the application.
+
+## Architecture
+
+The FastAPI application serves `static/index.html` and mounts the downloader router under `/api/downloader`. The frontend preserves paste-to-fetch, YouTube playlist/radio parameter cleanup, public-platform warnings, format selection, thumbnail selection, progress polling, and carousel selection. Downloads run in a background thread and are tracked through `/progress/{task_id}` until the completed file is served by `/file/{task_id}`.
+
+Because downloads depend on `yt-dlp`, FFmpeg, writable temporary storage, and a process that stays available while media is fetched and merged, a local machine or full VPS is a better runtime than a serverless function.
+
+## Search indexing and social previews
+
+The public page includes an absolute canonical URL, English title and description, author metadata for **Samuel Extehines Heydemans**, a GitHub author link to [@samwhine](https://github.com/samwhine), Open Graph and Twitter preview tags, JSON-LD structured data, `robots.txt`, and a 1200×630 `og-image.png`. The sitemap is available at `https://well.creativelegacy.my.id/sitemap.xml`.
+
+After the domain is publicly reachable over HTTPS, add the site to [Google Search Console](https://search.google.com/search-console), verify ownership, submit the sitemap URL, and request indexing for the homepage. Metadata improves discoverability but cannot guarantee a ranking or immediate inclusion in Google results.
+
+## API endpoints
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/downloader/status` | Check server and FFmpeg availability. |
+| `POST` | `/api/downloader/info` | Extract metadata and available formats. |
+| `POST` | `/api/downloader/download` | Start a background download. |
+| `GET` | `/api/downloader/progress/{task_id}` | Poll task progress and final file metadata. |
+| `GET` | `/api/downloader/file/{task_id}` | Serve a completed download. |
+| `DELETE` | `/api/downloader/cleanup/{task_id}` | Remove temporary task files. |
+| `GET` | `/api/downloader/rules` | Return supported and blocked platform rules. |
 
 ## Project structure
 
@@ -117,15 +113,14 @@ ffmpeg -version
 .
 ├── main.py
 ├── requirements.txt
-├── routers/
-│   └── downloader.py
-├── static/
-│   ├── index.html
-│   ├── favicon.ico
-│   ├── og-image.png
-│   ├── robots.txt
-│   ├── sitemap.xml
-│   └── site.webmanifest
+├── routers/downloader.py
+├── static/index.html
+├── static/favicon.ico
+├── static/og-image.png
+├── static/og-image.svg
+├── static/robots.txt
+├── static/site.webmanifest
+├── static/sitemap.xml
 ├── INSTALL.bat
 ├── CLEAR_CACHE.bat
 ├── UPDATE_YTDLP.bat
@@ -133,35 +128,33 @@ ffmpeg -version
 └── WELL_DOWNLOADER_START.bat
 ```
 
-Runtime files seperti task download sementara, partial files, virtual environment, cache, dan secrets diabaikan oleh `.gitignore`.
+## Legal and security notes
 
-## Vercel deployment note
+`yt-dlp` cannot guarantee that every URL will work. Private, login-only, geo-restricted, rate-limited, DRM-protected, or unsupported URLs may fail. If this app is exposed beyond a trusted local network, add authentication, rate limiting, SSRF protection for the image proxy, and bounded storage.
 
-Vercel dapat menjalankan aplikasi Python atau FastAPI sebagai serverless function, tetapi deployment tersebut bukan target runtime untuk WELL Downloader full. Versi downloader saat ini membutuhkan proses `yt-dlp` dan FFmpeg, file sementara, task progress, serta proses yang dapat berjalan hingga file selesai diproses.
+This repository does not currently declare an open-source license. Add a license before public distribution. Use Git commits or tags for release tracking; the app intentionally has no in-app product-version badge.
 
-Vercel memiliki filesystem read-only dengan writable `/tmp` scratch space hingga 500 MB. Function juga memiliki batas durasi dan batas request/response. Batas tersebut membuat model serverless tidak cocok sebagai tempat utama untuk mengunduh dan menyimpan file media berukuran besar atau menjalankan proses background yang persisten. [1] [2] [3]
+## Development check
 
-Vercel tetap dapat digunakan untuk:
-
-- demo UI dan halaman presentasi;
-- preview desain WELL Downloader;
-- hosting landing page statis;
-- SEO, Open Graph image, manifest, robots.txt, dan sitemap.
-
-Untuk downloader publik yang benar-benar berfungsi, jalankan backend pada local machine yang selalu aktif atau pada server/VPS yang memiliki Python, FFmpeg, filesystem persisten, dan worker background. Jika frontend dipisah dari backend, Vercel dapat menjadi frontend sedangkan backend downloader berjalan pada Windows atau VPS.
-
-## Legal and platform note
-
-`yt-dlp` hanya digunakan sebagai engine extractor. WELL Downloader tidak menjamin setiap URL akan berhasil. Konten private, konten yang membutuhkan login, geo-restricted content, rate-limited content, DRM, dan URL yang tidak lagi didukung platform dapat gagal diproses.
-
-## License
-
-Tambahkan lisensi project sesuai kebutuhan sebelum repository dipublikasikan secara luas. Jika belum ditentukan, repository ini belum menyatakan lisensi open source tertentu.
+```bash
+python3 -m py_compile main.py routers/downloader.py
+```
 
 ## References
 
-[1]: https://vercel.com/docs/functions/runtimes "Vercel Functions runtimes and filesystem support"
-[2]: https://vercel.com/docs/functions/limitations "Vercel Functions limitations"
-[3]: https://vercel.com/docs/functions/runtimes/python "Using the Python Runtime with Vercel Functions"
-[4]: https://github.com/yt-dlp/yt-dlp "yt-dlp official repository"
-[5]: https://ffmpeg.org/ "FFmpeg official website"
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+- [FFmpeg](https://ffmpeg.org/)
+- [Vercel Functions runtime documentation](https://vercel.com/docs/functions/runtimes)
+
+## Author
+
+**Samuel Extehines Heydemans**
+GitHub: [@samwhine](https://github.com/samwhine)
+
+## Disclaimer
+
+This project is for personal and educational use. Respect the terms of service, copyright, privacy, and access controls of every platform. Do not use it to bypass DRM or access private content.
+
+## End
+
+WELL Downloader is a local-first tool: paste a public URL, review the detected formats and estimated sizes, choose the highest available quality or another option, and save the result locally.

@@ -3,7 +3,65 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WELL Downloader</title>
+<title>WELL Downloader — Download Public Video, Audio &amp; Photos</title>
+<meta name="description" content="WELL Downloader is a local-first media downloader for public videos, audio, images, thumbnails, and photo carousels from YouTube, TikTok, Pinterest, Reddit, Vimeo, SoundCloud, Telegram, and other yt-dlp supported platforms.">
+<meta name="author" content="Samuel Extehines Heydemans">
+<meta name="publisher" content="Samuel Extehines Heydemans">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="googlebot" content="index, follow, max-image-preview:large">
+<meta name="theme-color" content="#080810">
+<meta name="keywords" content="media downloader, video downloader, audio downloader, photo downloader, Pinterest downloader, TikTok downloader, YouTube downloader, yt-dlp">
+<link rel="canonical" href="https://well.creativelegacy.my.id/">
+<link rel="author" href="https://github.com/samwhine">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="icon" href="/favicon.ico">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="WELL Downloader">
+<meta property="og:title" content="WELL Downloader — Download Public Video, Audio &amp; Photos">
+<meta property="og:description" content="Download public video, audio, images, thumbnails, and photo carousels with a local-first yt-dlp powered downloader.">
+<meta property="og:url" content="https://well.creativelegacy.my.id/">
+<meta property="og:image" content="https://well.creativelegacy.my.id/og-image.png">
+<meta property="og:image:alt" content="WELL Downloader — public media downloader">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="WELL Downloader — Download Public Video, Audio &amp; Photos">
+<meta name="twitter:description" content="Download public video, audio, images, thumbnails, and photo carousels from supported platforms.">
+<meta name="twitter:image" content="https://well.creativelegacy.my.id/og-image.png">
+<meta name="twitter:image:alt" content="WELL Downloader — public media downloader">
+<meta name="twitter:creator" content="@samwhine">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "WELL Downloader",
+  "url": "https://well.creativelegacy.my.id/",
+  "description": "A local-first downloader for public video, audio, images, thumbnails, and photo carousels.",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Windows, macOS, Linux",
+  "image": "https://well.creativelegacy.my.id/og-image.png",
+  "author": {
+    "@type": "Person",
+    "name": "Samuel Extehines Heydemans",
+    "url": "https://github.com/samwhine",
+    "sameAs": ["https://github.com/samwhine"]
+  },
+  "publisher": {
+    "@type": "Person",
+    "name": "Samuel Extehines Heydemans",
+    "url": "https://github.com/samwhine"
+  },
+  "featureList": [
+    "Public video downloads",
+    "Audio extraction",
+    "Image and photo-carousel downloads",
+    "Thumbnail downloads",
+    "Format size estimates",
+    "yt-dlp supported public platforms"
+  ]
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Bebas+Neue&display=swap" rel="stylesheet">
 <style>
@@ -2059,13 +2117,6 @@
     .app-logo .logo-tag { display: inline; }
   }
 
-  .app-version {
-    font-size: 10px;
-    color: var(--muted);
-    letter-spacing: 0.5px;
-    font-family: 'DM Mono', monospace;
-  }
-
   .app-panel {
     flex: 1;
     overflow-y: auto;
@@ -2079,7 +2130,7 @@
   /* ─── Two-column layout: history (left) + downloader (right) ─── */
   .app-layout {
     width: 100%;
-    max-width: 1240px;
+    max-width: 1520px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
@@ -2087,26 +2138,21 @@
     align-items: stretch;
   }
 
-  .history-panel { order: 2; }
-  .main-panel { order: 1; min-width: 0; }
+  .history-panel { order: 2; width: 100%; }
+  .main-panel { order: 1; min-width: 0; width: 100%; }
 
   @media (min-width: 980px) {
-    .app-layout {
-      flex-direction: row;
-      align-items: flex-start;
-      gap: 28px;
-    }
+    .app-layout { flex-direction: column; align-items: stretch; gap: 22px; }
     .history-panel {
-      order: 0;
-      width: 300px;
-      flex-shrink: 0;
-      position: sticky;
-      top: 0;
+      order: 2;
+      width: 100%;
+      flex-shrink: 1;
+      position: static;
     }
     .main-panel {
       flex: 1;
-      order: 0;
-      max-width: 760px;
+      order: 1;
+      max-width: none;
     }
   }
 
@@ -2143,6 +2189,29 @@
     border-radius: var(--radius-sm);
   }
 
+  .hist-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+  .hist-item { min-width: 0; align-items: flex-start; }
+  .hi-title { white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; line-height: 1.45; }
+  .history-panel-inner { padding: 20px; }
+  .history-panel-title { color: var(--text); font-weight: 700; letter-spacing: 1.2px; }
+
+  @media (min-width: 1100px) {
+    .app-panel { padding-left: clamp(28px, 4vw, 72px); padding-right: clamp(28px, 4vw, 72px); }
+    .url-input { font-size: 13px; }
+    .card { padding: 22px; }
+  }
+
+  .quality-note { font-size: 11px; color: var(--muted); line-height: 1.5; margin-bottom: 14px; }
+
+  .support-matrix { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .support-list { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; }
+  .support-list h3 { font-family: 'Syne', sans-serif; font-size: 12px; margin-bottom: 8px; }
+  .support-list ul { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+  .support-list li { font-size: 10px; color: var(--muted); border: 1px solid var(--border2); border-radius: 999px; padding: 4px 8px; }
+  .support-list.supported h3 { color: var(--green); }
+  .support-list.blocked h3 { color: var(--orange); }
+  @media (max-width: 640px) { .support-matrix { grid-template-columns: 1fr; } }
+
   @media (max-width: 640px) {
     .app-header { padding: 12px 16px; }
     .app-panel { padding: 18px 14px 32px; }
@@ -2159,7 +2228,6 @@
         <div class="logo-mark"><span class="logo-well">WELL</span><span class="logo-suite">DOWNLOADER</span></div>
         <span class="logo-tag">Media Downloader</span>
       </div>
-      <div class="app-version">v1.0.0</div>
     </div>
   </div>
 
@@ -2181,7 +2249,7 @@
     <div id="view-downloader">
       <div class="panel-header">
         <h2>⬇ Media Downloader</h2>
-        <p>Download video, audio, images, and thumbnails from YouTube, TikTok, Twitter/X, Reddit, SoundCloud, and 1000+ platforms</p>
+        <p>Download video, audio, images, and thumbnails from YouTube, TikTok, Twitter/X, Reddit, SoundCloud, and 1000+ platforms.</p>
       </div>
 
       <!-- URL input -->
@@ -2205,6 +2273,21 @@
           <span class="ptag">+ 1000 more</span>
         </div>
         <div style="margin-top:6px;font-size:10px;color:var(--muted)">⚠ Spotify · Apple Music · Netflix · Disney+ · HBO are not supported (DRM)</div>
+      </div>
+
+      <div class="support-matrix" aria-label="Platform support">
+        <section class="support-list supported">
+          <h3>✓ Works with public content</h3>
+          <ul>
+            <li>YouTube</li><li>TikTok</li><li>X / Twitter</li><li>Reddit</li><li>SoundCloud</li><li>Vimeo</li><li>Bilibili</li><li>Telegram</li><li>Pinterest</li><li>Dailymotion</li><li>Twitch</li><li>Rumble</li><li>1000+ yt-dlp sources</li>
+          </ul>
+        </section>
+        <section class="support-list blocked">
+          <h3>! Not supported or login-dependent</h3>
+          <ul>
+            <li>Instagram · cookies/login</li><li>Spotify · DRM</li><li>Apple Music · DRM</li><li>Netflix · DRM</li><li>Prime Video · DRM</li><li>Disney+ · DRM</li><li>HBO / Max · DRM</li><li>Crunchyroll · DRM</li>
+          </ul>
+        </section>
       </div>
 
       <div class="error-box" id="dl-err"></div>
@@ -2244,6 +2327,7 @@
 
           <!-- VIDEO TAB -->
           <div class="tab-panel active" id="dl-body-video" style="padding-top:18px">
+            <p class="quality-note">Estimated size is shown for every format. The highest available quality is selected automatically.</p>
             <!-- MP4 quality group -->
             <div class="quality-group" id="dl-mp4-group">
               <div class="quality-group-label">MP4</div>
@@ -2496,7 +2580,7 @@ async function dlFetch() {
     if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
       const isPurePlaylist = parsed.pathname === '/playlist' && parsed.searchParams.has('list');
       if (isPurePlaylist) {
-        dlShowErr('❌ YouTube playlist URLs are not supported.\n\nPlease open the playlist, pick a specific video, and paste that video\'s URL instead.\n\nPlaylist download will be added in a future version.');
+        dlShowErr('❌ YouTube playlist URLs are not supported.\n\nPlease open the playlist, pick a specific video, and paste that video\'s URL instead.');
         setBtn('dl-fetch-btn', false, 'Fetch Info');
         return;
       }
@@ -2693,11 +2777,15 @@ function dlRenderPanel(d) {
     buildChips(webmGroup, webmFmts, 'webm-chip');
     buildChips(otherGroup, otherFmts);
 
-    // Auto-select first MP4
-    if (firstChip) {
-      firstChip.classList.add('active');
-      const fmts0 = mp4Fmts.length ? mp4Fmts : webmFmts.length ? webmFmts : otherFmts;
-      if (fmts0.length) dlSelQuality = { format_id: fmts0[0].format_id, height: fmts0[0].height, ext: fmts0[0].ext };
+    // Auto-select the maximum available resolution, preferring MP4 only when resolutions tie.
+    const maxFmts = [...mp4Fmts, ...webmFmts, ...otherFmts].sort((a, b) =>
+      (b.height - a.height) || ((b.fps || 0) - (a.fps || 0)) || ((b.tbr || 0) - (a.tbr || 0)) || (dlExt(a) === 'mp4' ? -1 : 1)
+    );
+    if (maxFmts.length) {
+      const selected = maxFmts[0];
+      const selectedChip = [...document.querySelectorAll('.quality-chip')].find(chip => chip.getAttribute('onclick')?.includes(`'${selected.format_id}'`));
+      (selectedChip || firstChip)?.classList.add('active');
+      dlSelQuality = { format_id: selected.format_id, height: selected.height, ext: selected.ext };
     } else if (!videoFmts.length) {
       // No video formats, fallback
       mp4Group.classList.remove('hidden');
