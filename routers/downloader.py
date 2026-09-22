@@ -15,6 +15,9 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 progress_store = {}
 _version_cache = {"checked_at": 0, "latest": None, "error": None}
 CACHE_TTL_SECONDS = int(os.getenv("WELL_DOWNLOAD_TTL_HOURS", "4")) * 3600
+VIDEO_OUTPUT_FORMATS = {'mp4', 'mkv', 'webm', 'mov', 'avi', 'm4v', 'ts'}
+VIDEO_REMAP_FORMATS = {'mov', 'm4v', 'ts'}
+VIDEO_CONVERT_FORMATS = {'avi'}
 
 BLOCKED_PLATFORMS = {
     "instagram.com": {"name":"Instagram", "reason":"requires cookies/login for most posts", "tip":"Instagram is intentionally not supported in WELL Downloader."},
@@ -229,9 +232,19 @@ async def download_route(request:Request):
                 elif paths:path=paths[0]
                 else:raise Exception('No images selected')
             else:
-                output_format=data.get('format') if data.get('format') in {'mp4','mkv','webm'} else 'mp4'
+                output_format=data.get('format') if data.get('format') in VIDEO_OUTPUT_FORMATS else 'mp4'
                 audio_format=data.get('format') if data.get('format') in {'wav','flac','m4a','mp3','ogg','opus'} else 'mp3'
-                fmt='bestaudio/best' if media=='audio' else (f"{data.get('format_id')}+bestaudio/best" if data.get('format_id') else 'bestvideo+bestaudio/best');opts=build_opts(url,{'format':fmt,'outtmpl':os.path.join(folder,'%(title)s.%(ext)s'),'progress_hooks':[progress_hook(task)],'merge_output_format':output_format if media=='video' else None,'postprocessors':[{'key':'FFmpegExtractAudio','preferredcodec':audio_format,'preferredquality':'0'}] if media=='audio' else []});
+                fmt='bestaudio/best' if media=='audio' else (f"{data.get('format_id')}+bestaudio/best" if data.get('format_id') else 'bestvideo+bestaudio/best')
+                video_postprocessors=[]
+                merge_format=output_format
+                if media == 'video' and output_format in VIDEO_REMAP_FORMATS:
+                    merge_format='mkv'
+                    video_postprocessors=[{'key':'FFmpegVideoRemuxer','preferedformat':output_format}]
+                elif media == 'video' and output_format in VIDEO_CONVERT_FORMATS:
+                    merge_format='mkv'
+                    video_postprocessors=[{'key':'FFmpegVideoConvertor','preferedformat':output_format}]
+                postprocessors=([{'key':'FFmpegExtractAudio','preferredcodec':audio_format,'preferredquality':'0'}] if media=='audio' else video_postprocessors)
+                opts=build_opts(url,{'format':fmt,'outtmpl':os.path.join(folder,'%(title)s.%(ext)s'),'progress_hooks':[progress_hook(task)],'merge_output_format':merge_format if media=='video' else None,'postprocessors':postprocessors})
                 with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([url])
                 files=[os.path.join(folder,f) for f in os.listdir(folder) if not f.endswith(('.part','.ytdl'))];path=max(files,key=os.path.getsize)
             progress_store[task].update(status='done',percent=100,filename=os.path.basename(path),filepath=path,filesize=format_bytes(os.path.getsize(path)),title=title,_ts=time.time())

@@ -2071,13 +2071,13 @@
   }
 
   .app-header {
-    min-height: 64px;
+    min-height: 72px;
     border-bottom: 1px solid var(--glass-border);
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 14px 28px;
-    background: rgba(14,14,22,0.6);
+    padding: 16px 28px;
+    background: rgba(9,9,17,0.82);
     backdrop-filter: blur(20px) saturate(1.5);
     -webkit-backdrop-filter: blur(20px) saturate(1.5);
     position: relative;
@@ -2086,7 +2086,7 @@
 
   .app-header-inner {
     width: 100%;
-    max-width: 1240px;
+    max-width: 1520px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -2100,7 +2100,7 @@
   }
 
   .app-logo .logo-mark {
-    font-size: 22px;
+    font-size: 24px;
     letter-spacing: 2.5px;
   }
 
@@ -2115,6 +2115,14 @@
 
   @media (min-width: 560px) {
     .app-logo .logo-tag { display: inline; }
+  }
+
+  .app-header-context {
+    color: var(--muted);
+    font-size: 10px;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
 
   .app-panel {
@@ -2189,11 +2197,23 @@
     border-radius: var(--radius-sm);
   }
 
-  .hist-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
-  .hist-item { min-width: 0; align-items: flex-start; }
-  .hi-title { white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; line-height: 1.45; }
-  .history-panel-inner { padding: 20px; }
+  .hist-list { display: flex; flex-direction: column; gap: 8px; }
+  .hist-item { min-width: 0; width: 100%; min-height: 48px; align-items: center; }
+  .hi-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.45; }
+  .history-panel-inner { padding: 22px; }
   .history-panel-title { color: var(--text); font-weight: 700; letter-spacing: 1.2px; }
+
+  .support-matrix { display: block; }
+  .support-list { padding: 16px 18px; }
+  .support-list + .support-list { margin-top: 8px; }
+  .support-list ul { gap: 5px; }
+  .support-list li { padding: 5px 9px; }
+
+  .thumb-selector { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+  .thumb-opt { width: 100%; min-width: 0; aspect-ratio: 16 / 9; border-radius: 12px; border-width: 2px; }
+  .thumb-opt-res { font-size: 11px; padding: 6px 8px; text-align: left; }
+  .thumb-opt-check { font-size: 18px; }
+  .preview-card .thumb-box { width: 260px; }
 
   @media (min-width: 1100px) {
     .app-panel { padding-left: clamp(28px, 4vw, 72px); padding-right: clamp(28px, 4vw, 72px); }
@@ -2216,6 +2236,9 @@
     .app-header { padding: 12px 16px; }
     .app-panel { padding: 18px 14px 32px; }
     .app-logo .logo-mark { font-size: 19px; }
+    .app-header-context { display: none; }
+    .preview-card .thumb-box { width: 100%; }
+    .thumb-selector { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   }
 </style>
 </head>
@@ -2228,6 +2251,7 @@
         <div class="logo-mark"><span class="logo-well">WELL</span><span class="logo-suite">DOWNLOADER</span></div>
         <span class="logo-tag">Media Downloader</span>
       </div>
+      <div class="app-header-context">Public media workspace</div>
     </div>
   </div>
 
@@ -2238,7 +2262,7 @@
         <div class="history-panel-inner">
           <div class="history-panel-head">
             <span class="history-panel-title">Recent Downloads</span>
-            <button class="btn btn-ghost" style="font-size:10px;padding:4px 10px" onclick="dlClearHist()">🗑 Clear</button>
+            <button class="btn btn-ghost" style="font-size:10px;padding:4px 10px" onclick="dlClearHist()">Clear</button>
           </div>
           <div class="history-empty" id="dl-history-empty">No downloads yet — files you grab will show up here.</div>
           <div class="hist-list" id="dl-hist-list"></div>
@@ -2248,7 +2272,7 @@
       <main class="main-panel" id="panel-main">
     <div id="view-downloader">
       <div class="panel-header">
-        <h2>⬇ Media Downloader</h2>
+        <h2>Media Downloader</h2>
         <p>Download video, audio, images, and thumbnails from YouTube, TikTok, Twitter/X, Reddit, SoundCloud, and 1000+ platforms.</p>
       </div>
 
@@ -2262,28 +2286,17 @@
           <input id="dl-url" class="url-input" type="text" placeholder="Paste URL — YouTube, TikTok, Twitter/X, Reddit, SoundCloud, 1000+ more..." autocomplete="off" spellcheck="false">
           <button class="btn btn-primary" id="dl-fetch-btn" onclick="dlFetch()">Fetch Info</button>
         </div>
-        <div class="platform-tags">
-          <span class="ptag">▶ YouTube</span>
-          <span class="ptag">🎵 TikTok</span>
-          <span class="ptag">🐦 Twitter/X</span>
-          <span class="ptag">🤖 Reddit</span>
-          <span class="ptag">☁ SoundCloud</span>
-          <span class="ptag">📹 Vimeo</span>
-          <span class="ptag">🎬 Bilibili</span>
-          <span class="ptag">+ 1000 more</span>
-        </div>
-        <div style="margin-top:6px;font-size:10px;color:var(--muted)">⚠ Spotify · Apple Music · Netflix · Disney+ · HBO are not supported (DRM)</div>
       </div>
 
       <div class="support-matrix" aria-label="Platform support">
         <section class="support-list supported">
-          <h3>✓ Works with public content</h3>
+          <h3>Public sources</h3>
           <ul>
             <li>YouTube</li><li>TikTok</li><li>X / Twitter</li><li>Reddit</li><li>SoundCloud</li><li>Vimeo</li><li>Bilibili</li><li>Telegram</li><li>Pinterest</li><li>Dailymotion</li><li>Twitch</li><li>Rumble</li><li>1000+ yt-dlp sources</li>
           </ul>
         </section>
         <section class="support-list blocked">
-          <h3>! Not supported or login-dependent</h3>
+          <h3>Restricted sources</h3>
           <ul>
             <li>Instagram · cookies/login</li><li>Spotify · DRM</li><li>Apple Music · DRM</li><li>Netflix · DRM</li><li>Prime Video · DRM</li><li>Disney+ · DRM</li><li>HBO / Max · DRM</li><li>Crunchyroll · DRM</li>
           </ul>
@@ -2344,11 +2357,15 @@
               <div class="quality-chips" id="dl-other-chips"></div>
             </div>
             <div style="margin-top:14px">
-              <div class="field-label">Output Container</div>
+              <div class="field-label">Output Container <span style="font-size:10px;color:var(--muted);font-weight:400">MP4 recommended · FFmpeg required</span></div>
               <div class="fmt-grid" style="margin-top:8px">
                 <div class="fmt-chip active" id="dl-vfmt-mp4" onclick="dlPickVFmt('mp4')">.mp4</div>
                 <div class="fmt-chip" id="dl-vfmt-mkv" onclick="dlPickVFmt('mkv')">.mkv</div>
                 <div class="fmt-chip" id="dl-vfmt-webm" onclick="dlPickVFmt('webm')">.webm</div>
+                <div class="fmt-chip" id="dl-vfmt-mov" onclick="dlPickVFmt('mov')">.mov</div>
+                <div class="fmt-chip" id="dl-vfmt-avi" onclick="dlPickVFmt('avi')">.avi</div>
+                <div class="fmt-chip" id="dl-vfmt-m4v" onclick="dlPickVFmt('m4v')">.m4v</div>
+                <div class="fmt-chip" id="dl-vfmt-ts" onclick="dlPickVFmt('ts')">.ts</div>
               </div>
             </div>
             <button class="btn btn-primary btn-full" style="margin-top:14px" id="dl-btn-video" onclick="dlStart('video')">⬇ Download Video</button>
@@ -2551,7 +2568,7 @@ function dlSwitchTab(name) {
 
 function dlPickVFmt(fmt) {
   dlSelVFmt = fmt;
-  ['mp4','mkv','webm'].forEach(f => document.getElementById('dl-vfmt-'+f)?.classList.toggle('active', f===fmt));
+  ['mp4','mkv','webm','mov','avi','m4v','ts'].forEach(f => document.getElementById('dl-vfmt-'+f)?.classList.toggle('active', f===fmt));
 }
 
 function dlPickAFmt(el, fmt) {

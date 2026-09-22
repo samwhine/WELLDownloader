@@ -35,7 +35,7 @@ Platform behavior can change when a service changes its access rules or when an 
 
 When a URL is pasted, the frontend automatically fetches metadata. The API returns a concrete file size when the source exposes one. Otherwise, it estimates size from bitrate and duration and displays the value with `~`. The highest available video quality is selected automatically, while detected resolutions remain selectable.
 
-Video downloads combine the selected video format with the best available audio track and merge into `.mp4`, `.mkv`, or `.webm` when FFmpeg is available. Audio downloads use the selected source quality and convert to the chosen output format. TikTok photo/carousel posts are shown as a selectable gallery; multiple selected images are packaged into a ZIP archive.
+Video downloads combine the selected video format with the best available audio track and merge into `.mp4`, `.mkv`, `.webm`, `.mov`, `.avi`, `.m4v`, or `.ts` when FFmpeg is available. `.avi` uses an FFmpeg video conversion pass; `.mov`, `.m4v`, and `.ts` use a remux pass when compatible with the downloaded codecs. Audio downloads use the selected source quality and convert to the chosen output format. TikTok photo/carousel posts are shown as a selectable gallery; multiple selected images are packaged into a ZIP archive.
 
 ## Requirements
 
