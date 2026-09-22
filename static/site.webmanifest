@@ -1,0 +1,10 @@
+{
+  "name": "WELL Downloader",
+  "short_name": "WELL Downloader",
+  "description": "Download video, audio, thumbnail, dan photo posts dari platform publik yang didukung.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09111f",
+  "theme_color": "#09111f",
+  "icons": [{"src":"/favicon.ico","sizes":"any","type":"image/x-icon"}]
+}

@@ -1,587 +1,229 @@
 # ================================================================
-#  WELL Downloader — Downloader Router
-#  Streaming architecture: the server never writes files to disk.
-#  It resolves the real media URL via yt-dlp, then pipes bytes straight
-#  from the source to the browser in the same request/response. The
-#  browser's own download manager shows progress -- there's no server-
-#  side task/progress polling to keep in sync.
-#
-#  Why: this works identically on a normal server AND on serverless
-#  platforms (Vercel etc.) where the filesystem is read-only and each
-#  request can land on a different, short-lived instance -- so a
-#  "save to disk, poll progress, fetch file later" flow (the old
-#  design) can never work reliably there. Streaming sidesteps all of
-#  that by never needing state to survive between requests.
-#
-#  Trade-off: merging separate video+audio streams or transcoding
-#  audio to MP3 needs FFmpeg, which isn't available in serverless
-#  environments. So:
-#    - Video: only formats that already have video+audio combined in
-#      one stream are offered (no merge needed).
-#    - Audio: served in its native container (m4a/webm/opus) instead
-#      of being transcoded to MP3.
-#  On a real server with FFmpeg installed, this still all works fine --
-#  it's simply a stricter, universally-compatible subset.
+# WELL Downloader — yt-dlp media router
 # ================================================================
-
 from fastapi import APIRouter, Request
-from fastapi.responses import Response, StreamingResponse, JSONResponse
+from fastapi.responses import Response, FileResponse, JSONResponse
 import yt_dlp
-import os, requests as req_lib
-import re, io, zipfile, urllib.parse
+import importlib.metadata as metadata
+import os, threading, uuid, shutil, requests as req_lib
+import re, zipfile, urllib.parse, time
 
 router = APIRouter()
+FFMPEG_PATH = shutil.which("ffmpeg") or "ffmpeg"
+DOWNLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "temp", "downloader"))
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+progress_store = {}
+_version_cache = {"checked_at": 0, "latest": None, "error": None}
+CACHE_TTL_SECONDS = int(os.getenv("WELL_DOWNLOAD_TTL_HOURS", "4")) * 3600
 
-# CONFIG
-import shutil as _shutil
-FFMPEG_PATH = _shutil.which("ffmpeg") or "ffmpeg"
-
-# BLOCKED PLATFORMS
 BLOCKED_PLATFORMS = {
-    "spotify.com":      {"name": "Spotify",       "reason": "Uses Widevine DRM encryption -- cannot be bypassed.",        "tip": "Try searching for the same track on YouTube Music or SoundCloud."},
-    "music.apple.com":  {"name": "Apple Music",   "reason": "Uses FairPlay DRM -- audio cannot be extracted.",            "tip": "Try searching for the same track on YouTube Music or SoundCloud."},
-    "deezer.com":       {"name": "Deezer",         "reason": "Premium tracks require login and use DRM.",                 "tip": "Try searching for the same track on YouTube Music or SoundCloud."},
-    "tidal.com":        {"name": "Tidal",          "reason": "Requires premium login and uses DRM encryption.",           "tip": "Try searching for the same track on YouTube Music or SoundCloud."},
-    "netflix.com":      {"name": "Netflix",        "reason": "Uses Widevine DRM L1 -- streams cannot be captured.",       "tip": "Use the official download feature in the Netflix app."},
-    "primevideo.com":   {"name": "Amazon Prime",   "reason": "Uses DRM -- streams cannot be captured.",                   "tip": "Use the official download feature in the Prime Video app."},
-    "disneyplus.com":   {"name": "Disney+",        "reason": "Uses DRM -- streams cannot be captured.",                   "tip": "Use the official download feature in the Disney+ app."},
-    "hbo.com":          {"name": "HBO / Max",      "reason": "Uses DRM -- streams cannot be captured.",                   "tip": "Use the official download feature in the Max app."},
-    "hbomax.com":       {"name": "HBO Max",        "reason": "Uses DRM -- streams cannot be captured.",                   "tip": "Use the official download feature in the Max app."},
-    "max.com":          {"name": "Max (HBO)",      "reason": "Uses DRM -- streams cannot be captured.",                   "tip": "Use the official download feature in the Max app."},
-    "crunchyroll.com":  {"name": "Crunchyroll",    "reason": "Premium content requires login and uses DRM.",             "tip": "Try searching on YouTube or other free platforms."},
+    "instagram.com": {"name":"Instagram", "reason":"requires cookies/login for most posts", "tip":"Instagram is intentionally not supported in WELL Downloader."},
+    "spotify.com": {"name":"Spotify", "reason":"DRM protected", "tip":"Use an official offline download feature instead."},
+    "music.apple.com": {"name":"Apple Music", "reason":"FairPlay DRM protected", "tip":"Use an official offline download feature instead."},
+    "deezer.com": {"name":"Deezer", "reason":"login/DRM protected", "tip":"Use an official offline download feature instead."},
+    "tidal.com": {"name":"Tidal", "reason":"login/DRM protected", "tip":"Use an official offline download feature instead."},
+    "netflix.com": {"name":"Netflix", "reason":"Widevine DRM protected", "tip":"Use the official Netflix app download feature."},
+    "primevideo.com": {"name":"Amazon Prime Video", "reason":"DRM protected", "tip":"Use the official Prime Video app download feature."},
+    "disneyplus.com": {"name":"Disney+", "reason":"DRM protected", "tip":"Use the official Disney+ app download feature."},
+    "hbo.com": {"name":"HBO / Max", "reason":"DRM protected", "tip":"Use the official Max app download feature."},
+    "hbomax.com": {"name":"HBO Max", "reason":"DRM protected", "tip":"Use the official Max app download feature."},
+    "max.com": {"name":"Max", "reason":"DRM protected", "tip":"Use the official Max app download feature."},
+    "crunchyroll.com": {"name":"Crunchyroll", "reason":"login/DRM protected", "tip":"Use the official service download feature."},
 }
 
-LOGIN_REQUIRED_PLATFORMS = {
-    "instagram.com": {"name": "Instagram", "reason": "Instagram blocks unauthenticated access for most content since 2024.", "tip": "Public Reels may still work. Stories and private content will fail.", "soft_block": True},
-    "facebook.com":  {"name": "Facebook",  "reason": "Facebook requires login for most video content.",                     "tip": "Try a public Facebook video URL -- some public posts still work.",   "soft_block": True},
-}
+BROWSER_HEADERS = {"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36", "Accept-Language":"en-US,en;q=0.9"}
+TIKTOK_HEADERS = {**BROWSER_HEADERS, "Referer":"https://www.tiktok.com/"}
 
 def check_blocked_platform(url):
-    url_lower = url.lower()
+    low = url.lower()
     for domain, info in BLOCKED_PLATFORMS.items():
-        if domain in url_lower:
-            return "hard", info
-    for domain, info in LOGIN_REQUIRED_PLATFORMS.items():
-        if domain in url_lower:
-            return "soft", info
-    return None, None
+        if domain in low: return info
+    return None
 
-# HELPERS
-BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-}
-TIKTOK_HEADERS  = {**BROWSER_HEADERS, "Referer": "https://www.tiktok.com/"}
-TWITTER_HEADERS = {**BROWSER_HEADERS, "Referer": "https://x.com/"}
-REDDIT_HEADERS  = {**BROWSER_HEADERS, "Referer": "https://www.reddit.com/"}
+def headers_for(url):
+    return TIKTOK_HEADERS if "tiktok.com" in url.lower() else BROWSER_HEADERS
 
-def get_headers_for_url(url):
-    if "tiktok.com" in url or "tiktokcdn.com" in url: return TIKTOK_HEADERS
-    if "twitter.com" in url or "x.com" in url:         return TWITTER_HEADERS
-    if "reddit.com" in url or "redd.it" in url:        return REDDIT_HEADERS
-    return BROWSER_HEADERS
+def format_speed(speed):
+    if not speed: return ""
+    for unit, div in (("GB/s",1024**3),("MB/s",1024**2),("KB/s",1024),("B/s",1)):
+        if speed >= div: return f"{speed/div:.1f} {unit}"
+    return "0 B/s"
 
-def format_bytes(b):
-    if not b: return "0 B"
-    for unit, div in [("GB", 1024**3), ("MB", 1024**2), ("KB", 1024), ("B", 1)]:
-        if b >= div:
-            val = b / div
-            return f"{val:.2f} {unit}" if unit in ("GB", "MB") else f"{val:.0f} {unit}"
+def format_bytes(value):
+    if not value: return "0 B"
+    for unit, div in (("GB",1024**3),("MB",1024**2),("KB",1024),("B",1)):
+        if value >= div: return f"{value/div:.2f} {unit}" if unit in ("GB","MB") else f"{value/div:.0f} {unit}"
     return "0 B"
 
-def safe_win_filename(name):
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name)
-    name = name.strip('. ')
-    return name[:120] or "download"
+def safe_name(name): return (re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip('. ')[:120] or "download")
+def is_image_url(url): return any(url.split('?')[0].lower().endswith(x) for x in ('.jpg','.jpeg','.png','.gif','.webp','.bmp','.tiff'))
+def proxy_url(url): return f"/api/downloader/proxy-image?url={urllib.parse.quote(url,safe='')}" if url else ""
+def unwrap(url): return urllib.parse.unquote(url.split('?url=',1)[1]) if '/api/downloader/proxy-image?url=' in url else url
 
-def is_image_url(url):
-    clean = url.split('?')[0].lower()
-    return any(clean.endswith(ext) for ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'))
-
-def detect_content_type(info):
-    _type = info.get("_type", "")
-    if _type in ("playlist", "multi_video"): return "gallery"
-    formats  = info.get("formats", [])
-    has_video = any((f.get("vcodec") or "none") != "none" and f.get("height") for f in formats)
-    if not formats:
-        url_direct = info.get("url", "")
-        ext = info.get("ext", "")
-        if ext in ("jpg", "jpeg", "png", "webp", "gif", "bmp") or is_image_url(url_direct):
-            return "image"
-        return "video"
-    if has_video: return "video"
-    has_audio = any((f.get("acodec") or "none") != "none" for f in formats)
-    return "audio_only" if has_audio else "video"
-
-def build_ydl_opts(extra=None):
-    opts = {"quiet": True, "no_warnings": True, "http_headers": BROWSER_HEADERS, "retries": 5, "fragment_retries": 5, "socket_timeout": 30}
-    if os.path.isfile(FFMPEG_PATH): opts["ffmpeg_location"] = FFMPEG_PATH
+def build_opts(url, extra=None):
+    opts={"quiet":True,"no_warnings":True,"http_headers":headers_for(url),"retries":5,"fragment_retries":5,"socket_timeout":30}
+    if os.path.isfile(FFMPEG_PATH): opts["ffmpeg_location"]=FFMPEG_PATH
     if extra: opts.update(extra)
     return opts
 
-def build_ydl_opts_for_url(url, extra=None):
-    opts = build_ydl_opts(extra)
-    if "tiktok.com" in url:                        opts["http_headers"] = TIKTOK_HEADERS
-    elif "twitter.com" in url or "x.com" in url:  opts["http_headers"] = TWITTER_HEADERS
-    elif "reddit.com" in url or "redd.it" in url: opts["http_headers"] = REDDIT_HEADERS
-    # Deliberately not forcing a youtube player_client -- see README.
-    # yt-dlp's own default client selection (kept current via regular
-    # `pip install -U yt-dlp` / requirements.txt bumps) reacts to
-    # YouTube's frequent changes far better than a hardcoded override.
-    return opts
+def progress_hook(task_id):
+    def hook(d):
+        if d['status']=='downloading':
+            total=d.get('total_bytes') or d.get('total_bytes_estimate') or 0; got=d.get('downloaded_bytes',0)
+            progress_store[task_id].update(status='downloading',percent=round(got/total*100,1) if total else 0,speed=format_speed(d.get('speed') or 0),eta=d.get('eta') or 0,downloaded=format_bytes(got),total=format_bytes(total),step='Downloading…',_ts=time.time())
+        elif d['status']=='finished': progress_store[task_id].update(status='processing',percent=99,step='Merging / packaging…',_ts=time.time())
+    return hook
 
-def proxy_url(u):
-    if not u: return u
-    return f"/api/downloader/proxy-image?url={urllib.parse.quote(u, safe='')}"
-
-def unwrap_proxy(u):
-    if u and "/api/downloader/proxy-image?url=" in u:
-        return urllib.parse.unquote(u.split("?url=", 1)[1])
-    return u
+def friendly_error(message,url):
+    m=message.lower()
+    if 'login' in m or 'sign in' in m: return '❌ This content requires login/cookies or is private.'
+    if 'private' in m: return '❌ Private content cannot be downloaded.'
+    if '429' in m or 'rate limit' in m: return '❌ The platform is rate-limiting requests. Please try again in a few minutes.'
+    if 'ffmpeg' in m: return '❌ FFmpeg is not available. Install FFmpeg to merge video and audio.'
+    if 'playlist' in m: return '❌ Paste a single post or video URL, not a playlist or radio URL.'
+    if 'unsupported' in m or 'extractor' in m: return '❌ This URL is not supported by yt-dlp.'
+    return f'❌ Download failed: {message}'
 
 def best_thumbnails(info, limit=8):
-    thumbs_raw = info.get("thumbnails") or []
-    thumbs_sorted = sorted([t for t in thumbs_raw if t.get("url")], key=lambda t: (t.get("width") or 0) * (t.get("height") or 0), reverse=True)
-    seen_t, thumbs = set(), []
-    for t in thumbs_sorted:
-        u = t.get("url", "")
-        if u and u not in seen_t:
-            seen_t.add(u)
-            w, h = t.get("width"), t.get("height")
-            thumbs.append({"url": proxy_url(u), "raw_url": u, "width": w, "height": h, "label": f"{w}x{h}" if w and h else "Best Available"})
-    return thumbs[:limit]
+    arr=sorted([x for x in info.get('thumbnails',[]) if x.get('url')],key=lambda x:(x.get('width') or 0)*(x.get('height') or 0),reverse=True); seen=set(); out=[]
+    for t in arr:
+        if t['url'] in seen: continue
+        seen.add(t['url']); out.append({'url':proxy_url(t['url']),'raw_url':t['url'],'width':t.get('width'),'height':t.get('height'),'label':f"{t.get('width')}×{t.get('height')}" if t.get('width') and t.get('height') else 'Best available'})
+    return out[:limit]
 
-def friendly_error(msg, url=""):
-    m = msg.lower()
-    platform = _detect_platform(url) if url else "Unknown"
+def image_entry(e,i):
+    formats=e.get('formats') or []; candidates=[f for f in formats if f.get('url') and (f.get('vcodec') or 'none')=='none' and (f.get('acodec') or 'none')=='none'] or [f for f in formats if f.get('url')]
+    raw=(max(candidates,key=lambda f:(f.get('width') or 0)*(f.get('height') or 0)).get('url') if candidates else '') or e.get('url') or ''
+    thumb=e.get('thumbnail') or raw; ext=e.get('ext') or 'jpg'
+    return {'index':i,'url':proxy_url(raw),'thumbnail':proxy_url(thumb),'raw_url':raw,'ext':ext,'width':e.get('width'),'height':e.get('height'),'title':e.get('title') or f'Image {i+1}'}
 
-    if "sign in" in m or "login" in m:
-        print(f"  [!!] DOWNLOADER ERROR: [{platform}] Login required.\n       URL: {url}\n       Raw: {msg}")
-        return "Login required. This content needs authentication and cannot be downloaded publicly."
-    if "private" in m:
-        print(f"  [!!] DOWNLOADER ERROR: [{platform}] Private content.\n       URL: {url}")
-        return "This content is private and cannot be downloaded."
-    if "not available" in m or "unavailable" in m:
-        print(f"  [!!] DOWNLOADER ERROR: [{platform}] Content unavailable.\n       URL: {url}")
-        return "Content is unavailable or has been deleted."
-    if "429" in m or "rate limit" in m:
-        print(f"  [!!] DOWNLOADER ERROR: [{platform}] Rate limited.\n       URL: {url}")
-        return "Rate limited by platform. Please wait a few minutes and try again."
-    if "404" in m:
-        print(f"  [!!] DOWNLOADER ERROR: [{platform}] 404.\n       URL: {url}")
-        return "Content not found (404). Please check the URL."
-    if "403" in m:
-        print(f"  [!!] DOWNLOADER ERROR: [{platform}] 403.\n       URL: {url}")
-        return "Access denied (403). Content may be geo-restricted or require login."
-    if "geo" in m or "region" in m:
-        print(f"  [!!] DOWNLOADER ERROR: [{platform}] Geo-restricted.\n       URL: {url}")
-        return "Content is not available in your region."
-    if "copyright" in m:
-        print(f"  [!!] DOWNLOADER ERROR: [{platform}] Copyright claim.\n       URL: {url}")
-        return "Content has been removed due to a copyright claim."
-    if "unsupported url" in m or "no suitable" in m or "extractor" in m:
-        print(f"  [!!] DOWNLOADER ERROR: [{platform}] Unsupported URL.\n       URL: {url}\n       Raw: {msg}")
-        return "This URL is not supported. WELL Downloader supports YouTube, TikTok, Twitter/X, Reddit, SoundCloud, Vimeo, Bilibili, and 1000+ other platforms -- but not all sites work."
-    if "playlist" in m:
-        print(f"  [!!] DOWNLOADER ERROR: [{platform}] Playlist URL.\n       URL: {url}")
-        return "Playlist URLs are not supported. Please paste a single video URL instead."
+def cleanup_expired_downloads():
+    """Remove finished/error tasks older than the configured TTL."""
+    now = time.time()
+    for task_id, task in list(progress_store.items()):
+        age = now - task.get('_ts', now)
+        if age > CACHE_TTL_SECONDS and task.get('status') not in ('pending', 'downloading', 'processing'):
+            shutil.rmtree(os.path.join(DOWNLOAD_DIR, task_id), ignore_errors=True)
+            progress_store.pop(task_id, None)
+    # Also clean orphaned folders left by a previous server process.
+    for task_id in os.listdir(DOWNLOAD_DIR):
+        folder = os.path.join(DOWNLOAD_DIR, task_id)
+        if not os.path.isdir(folder) or task_id in progress_store:
+            continue
+        try:
+            if now - os.path.getmtime(folder) > CACHE_TTL_SECONDS:
+                shutil.rmtree(folder, ignore_errors=True)
+        except OSError:
+            pass
 
-    print(f"  [!!] DOWNLOADER ERROR [{platform}]: {msg}\n       URL: {url}")
-    return f"Download failed: {msg}"
+def _cache_reaper():
+    while True:
+        try:
+            cleanup_expired_downloads()
+        except Exception:
+            pass
+        time.sleep(600)
 
-def _detect_platform(url):
-    url_l = url.lower()
-    if "youtube.com" in url_l or "youtu.be" in url_l: return "YouTube"
-    if "tiktok.com" in url_l:   return "TikTok"
-    if "twitter.com" in url_l or "x.com" in url_l: return "Twitter/X"
-    if "instagram.com" in url_l: return "Instagram"
-    if "facebook.com" in url_l:  return "Facebook"
-    if "reddit.com" in url_l or "redd.it" in url_l: return "Reddit"
-    if "soundcloud.com" in url_l: return "SoundCloud"
-    if "vimeo.com" in url_l:      return "Vimeo"
-    if "bilibili.com" in url_l:   return "Bilibili"
-    if "spotify.com" in url_l:    return "Spotify"
+threading.Thread(target=_cache_reaper, daemon=True).start()
+
+@router.get('/status')
+async def status(): return {'server':'WELL Downloader','version':'2.0.0','ffmpeg_found':shutil.which('ffmpeg') is not None}
+
+@router.get('/yt-dlp-version')
+async def ytdlp_version():
+    """Return current venv version plus PyPI latest; UI keeps warning until this matches."""
     try:
-        from urllib.parse import urlparse
-        return urlparse(url).hostname or "Unknown"
-    except Exception:
-        return "Unknown"
+        current = metadata.version('yt-dlp')
+    except metadata.PackageNotFoundError:
+        current = getattr(yt_dlp.version, '__version__', 'unknown')
+    now = time.time()
+    if now - _version_cache['checked_at'] > 300 or not _version_cache['latest']:
+        try:
+            response = req_lib.get('https://pypi.org/pypi/yt-dlp/json', timeout=8)
+            response.raise_for_status()
+            _version_cache.update(checked_at=now, latest=response.json().get('info', {}).get('version'), error=None)
+        except Exception as exc:
+            _version_cache.update(checked_at=now, error=str(exc))
+    latest = _version_cache.get('latest')
+    outdated = bool(latest and current != latest)
+    return {'current': current, 'latest': latest, 'outdated': outdated, 'check_error': _version_cache.get('error')}
 
+@router.get('/rules')
+async def rules(): return {'supported':['YouTube','TikTok video','TikTok photo/carousel','Telegram public posts','Pinterest public pins','yt-dlp supported public platforms'],'blocked':list(BLOCKED_PLATFORMS)}
 
-def clean_youtube_url(url):
-    """
-    Strip playlist/Mix/Radio parameters (list=..., start_radio=...) from a
-    YouTube watch URL. Without this, opening a video from inside a Mix/
-    Radio/playlist makes yt-dlp treat the WHOLE playlist as the target —
-    which this app then (correctly, but confusingly) detects as a
-    "gallery" and shows other videos' thumbnails as if they were
-    selectable images, takes far longer to fetch, and hides the actual
-    video/audio download options. Stripping down to just `v=<id>` keeps
-    it a single-video request, matching what the user actually clicked.
-    Returns (cleaned_url, was_cleaned: bool).
-    """
-    if "youtube.com" not in url and "youtu.be" not in url:
-        return url, False
+@router.get('/proxy-image')
+async def proxy_image(url:str=''):
+    if not url.startswith(('http://','https://')): return Response('Invalid URL',status_code=400)
     try:
-        parsed = urllib.parse.urlparse(url)
-        qs = urllib.parse.parse_qs(parsed.query)
-        if "list" not in qs and "start_radio" not in qs:
-            return url, False
+        r=req_lib.get(url,timeout=20,headers=headers_for(url));r.raise_for_status();return Response(r.content,media_type=r.headers.get('content-type','image/jpeg'),headers={'Cache-Control':'public, max-age=3600'})
+    except Exception as e:return Response(f'Proxy error: {e}',status_code=502)
 
-        if "youtu.be" in parsed.netloc:
-            video_id = parsed.path.strip("/")
-            if not video_id:
-                return url, False
-            return f"https://youtu.be/{video_id}", True
-
-        if "v" in qs:
-            video_id = qs["v"][0]
-            cleaned = urllib.parse.urlunparse(parsed._replace(query=f"v={video_id}"))
-            return cleaned, True
-
-        return url, False
-    except Exception:
-        return url, False
-
-
-# STATUS
-
-@router.get("/status")
-async def status():
-    ffmpeg_ok = _shutil.which("ffmpeg") is not None
-    return {"server": "WELL Downloader", "ffmpeg": FFMPEG_PATH, "ffmpeg_found": ffmpeg_ok, "mode": "streaming"}
-
-
-@router.get("/proxy-image")
-async def proxy_image(url: str = ""):
-    raw = url.strip()
-    if not raw or not raw.startswith(("http://", "https://")):
-        return Response("Invalid URL", status_code=400)
+@router.post('/info')
+async def info_route(request:Request):
+    data=await request.json();url=(data.get('url') or '').strip()
+    if not url:return JSONResponse({'error':'URL cannot be empty'},status_code=400)
+    blocked=check_blocked_platform(url)
+    if blocked:return JSONResponse({'error':f"❌ {blocked['name']} is not supported — {blocked['reason']}. {blocked['tip']}"},status_code=400)
     try:
-        headers = get_headers_for_url(raw)
-        r = req_lib.get(raw, timeout=20, headers=headers, allow_redirects=True)
-        r.raise_for_status()
-        return Response(r.content, media_type=r.headers.get("content-type", "image/jpeg"), headers={"Cache-Control": "public, max-age=3600"})
-    except Exception as e:
-        return Response(f"Proxy error: {e}", status_code=502)
+        with yt_dlp.YoutubeDL(build_opts(url,{'extract_flat':'in_playlist'})) as ydl: flat=ydl.extract_info(url,download=False)
+        gallery=flat.get('_type') in ('playlist','multi_video')
+        if gallery:
+            entries=flat.get('entries') or []
+            images=[image_entry(e,i) for i,e in enumerate(entries) if e]
+            return {'title':flat.get('title') or 'Photo gallery','thumbnail':images[0]['thumbnail'] if images else '','platform':flat.get('extractor_key',''),'uploader':flat.get('uploader',''),'content_type':'gallery','images':images,'count':len(images),'formats':[],'thumbnails':[],'url':url}
+        with yt_dlp.YoutubeDL(build_opts(url)) as ydl: data_full=ydl.extract_info(url,download=False)
+        formats=data_full.get('formats') or [];has_video=any((f.get('vcodec') or 'none')!='none' and f.get('height') for f in formats)
+        if not formats and (data_full.get('ext') in ('jpg','jpeg','png','webp','gif') or is_image_url(data_full.get('url',''))):
+            raw=data_full.get('url','');img=image_entry({**data_full,'url':raw},0);return {'title':data_full.get('title','Image'),'thumbnail':proxy_url(raw),'platform':data_full.get('extractor_key',''),'content_type':'image','images':[img],'count':1,'formats':[],'thumbnails':[],'url':url}
+        out=[];seen=set()
+        for f in formats:
+            v=(f.get('vcodec') or 'none')!='none';a=(f.get('acodec') or 'none')!='none';h=f.get('height');abr=f.get('abr') or f.get('tbr')
+            if v and h:
+                key=(h,f.get('fps'),f.get('ext')); 
+                if key not in seen: seen.add(key);out.append({'format_id':f.get('format_id',''),'type':'video','height':h,'quality':f'{h}p','label':f"{h}p · {(f.get('ext') or '').upper()}"})
+            elif a and abr:
+                key=('a',int(abr),f.get('ext'))
+                if key not in seen: seen.add(key);out.append({'format_id':f.get('format_id',''),'type':'audio','abr':abr,'label':f"{int(abr)}kbps · {(f.get('ext') or '').upper()}"})
+        raw=(best_thumbnails(data_full,1) or [{'raw_url':data_full.get('thumbnail','')}])[0].get('raw_url','')
+        dur=int(data_full.get('duration') or 0);return {'title':data_full.get('title',''),'thumbnail':proxy_url(raw),'thumbnails':best_thumbnails(data_full),'duration':f'{dur//60}:{dur%60:02d}','uploader':data_full.get('uploader') or data_full.get('channel') or '','platform':data_full.get('extractor_key',''),'content_type':'video' if has_video else 'audio_only','images':[],'formats':out,'url':url}
+    except yt_dlp.utils.DownloadError as e:return JSONResponse({'error':friendly_error(str(e),url)},status_code=400)
+    except Exception as e:return JSONResponse({'error':f'Failed to fetch info: {e}'},status_code=500)
 
+@router.post('/download')
+async def download_route(request:Request):
+    cleanup_expired_downloads()
+    data=await request.json();url=(data.get('url') or '').strip();media=data.get('media_type','video');task=str(uuid.uuid4());folder=os.path.join(DOWNLOAD_DIR,task);os.makedirs(folder,exist_ok=True);progress_store[task]={'status':'pending','percent':0,'_ts':time.time()}
+    def work():
+        try:
+            title=safe_name(data.get('title','download'))
+            if media=='thumbnail':
+                raw=unwrap(data.get('thumb_url',''));r=req_lib.get(raw,headers=headers_for(raw),timeout=30);r.raise_for_status();ext='png' if 'png' in r.headers.get('content-type','') else 'jpg';path=os.path.join(folder,f'{title}_thumbnail.{ext}');open(path,'wb').write(r.content)
+            elif media=='image':
+                paths=[]
+                for i,raw0 in enumerate(data.get('image_urls',[]),1):
+                    raw=unwrap(raw0);r=req_lib.get(raw,headers=headers_for(raw),timeout=30);r.raise_for_status();ext='jpg';ct=r.headers.get('content-type','');ext='png' if 'png' in ct else ('webp' if 'webp' in ct else 'jpg');path=os.path.join(folder,f'{title}_{i:02d}.{ext}');open(path,'wb').write(r.content);paths.append(path)
+                if len(paths)>1:
+                    archive=os.path.join(folder,f'{title}_photos.zip');
+                    with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as z:
+                        for p in paths:z.write(p,os.path.basename(p))
+                    path=archive
+                elif paths:path=paths[0]
+                else:raise Exception('No images selected')
+            else:
+                fmt='bestaudio/best' if media=='audio' else (f"{data.get('format_id')}+bestaudio/best" if data.get('format_id') else 'bestvideo+bestaudio/best');opts=build_opts(url,{'format':fmt,'outtmpl':os.path.join(folder,'%(title)s.%(ext)s'),'progress_hooks':[progress_hook(task)],'merge_output_format':'mp4' if media=='video' else None,'postprocessors':[{'key':'FFmpegExtractAudio','preferredcodec':'mp3','preferredquality':'0'}] if media=='audio' else []});
+                with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([url])
+                files=[os.path.join(folder,f) for f in os.listdir(folder) if not f.endswith(('.part','.ytdl'))];path=max(files,key=os.path.getsize)
+            progress_store[task].update(status='done',percent=100,filename=os.path.basename(path),filepath=path,filesize=format_bytes(os.path.getsize(path)),title=title,_ts=time.time())
+        except Exception as e:progress_store[task].update(status='error',message=friendly_error(str(e),url),_ts=time.time())
+    threading.Thread(target=work,daemon=True).start();return {'task_id':task}
 
-# INFO
-
-@router.post("/info")
-async def api_info(request: Request):
-    data = await request.json()
-    url  = (data.get("url") or "").strip()
-    if not url:
-        return JSONResponse({"error": "URL cannot be empty"}, status_code=400)
-
-    block_type, block_info = check_blocked_platform(url)
-    if block_type == "hard":
-        return JSONResponse({"error": f"{block_info['name']} is not supported -- {block_info['reason']} Tip: {block_info['tip']}"}, status_code=400)
-
-    platform_warning = None
-    if block_type == "soft":
-        platform_warning = f"{block_info['name']}: {block_info['reason']} {block_info['tip']}"
-
-    url, was_playlist_cleaned = clean_youtube_url(url)
-    if was_playlist_cleaned:
-        playlist_note = "Playlist/Mix parameters removed — fetching the single video only."
-        platform_warning = f"{platform_warning} {playlist_note}" if platform_warning else playlist_note
-
-    try:
-        flat_opts = build_ydl_opts_for_url(url, {"extract_flat": "in_playlist"})
-        with yt_dlp.YoutubeDL(flat_opts) as ydl:
-            info_flat = ydl.extract_info(url, download=False)
-
-        is_gallery = info_flat.get("_type", "") in ("playlist", "multi_video")
-
-        if is_gallery:
-            info_full = info_flat
-            try:
-                with yt_dlp.YoutubeDL(build_ydl_opts_for_url(url)) as ydl:
-                    info_full = ydl.extract_info(url, download=False)
-            except Exception:
-                pass
-
-            entries_raw = info_full.get("entries") or info_flat.get("entries") or []
-            images = []
-            for i, e in enumerate(entries_raw):
-                if not e: continue
-                thumbs_e = sorted([t for t in (e.get("thumbnails") or []) if t.get("url")], key=lambda t: (t.get("width") or 0) * (t.get("height") or 0), reverse=True)
-                thumb_raw = (thumbs_e[0]["url"] if thumbs_e else "") or e.get("thumbnail") or ""
-                direct_url = ""
-                fmts = e.get("formats") or []
-                if fmts:
-                    img_fmts = [f for f in fmts if (f.get("vcodec") or "none") == "none" and (f.get("acodec") or "none") == "none" and f.get("url")]
-                    if not img_fmts: img_fmts = [f for f in fmts if f.get("url")]
-                    if img_fmts:
-                        best_f = max(img_fmts, key=lambda f: (f.get("width") or 0) * (f.get("height") or 0))
-                        direct_url = best_f.get("url", "")
-                if not direct_url: direct_url = e.get("url") or ""
-                if not direct_url:
-                    entry_page = e.get("webpage_url") or ""
-                    if entry_page.startswith("http"):
-                        try:
-                            with yt_dlp.YoutubeDL(build_ydl_opts_for_url(entry_page)) as ydl3:
-                                re_e = ydl3.extract_info(entry_page, download=False)
-                                re_fmts = re_e.get("formats") or []
-                                if re_fmts: direct_url = re_fmts[-1].get("url", "")
-                                if not direct_url: direct_url = re_e.get("url", "")
-                        except Exception: pass
-                ext = e.get("ext") or "jpg"
-                url_no_qs = (direct_url or "").split("?")[0].split("/")[-1]
-                if "." in url_no_qs:
-                    maybe = url_no_qs.rsplit(".", 1)[-1].lower()
-                    if maybe in ("jpg", "jpeg", "png", "webp", "gif", "bmp"):
-                        ext = "jpg" if maybe == "jpeg" else maybe
-                images.append({"index": i, "url": proxy_url(direct_url), "thumbnail": proxy_url(thumb_raw or direct_url), "raw_url": direct_url, "ext": ext, "width": e.get("width"), "height": e.get("height"), "title": e.get("title") or f"Image {i+1}"})
-
-            uploader = info_full.get("uploader") or info_full.get("channel") or info_flat.get("uploader") or info_flat.get("channel") or ""
-            cover = proxy_url(images[0]["raw_url"]) if images else ""
-            return JSONResponse({"title": info_full.get("title") or info_flat.get("title") or uploader or "Gallery", "thumbnail": cover, "thumbnails": [], "duration": 0, "uploader": uploader, "view_count": info_full.get("view_count") or info_flat.get("view_count"), "platform": info_full.get("extractor_key") or info_flat.get("extractor_key") or "", "content_type": "gallery", "images": images, "formats": [], "url": url, "count": len(images), "warning": platform_warning})
-
-        with yt_dlp.YoutubeDL(build_ydl_opts_for_url(url)) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-        content_type = detect_content_type(info)
-
-        if content_type == "image":
-            direct_url = info.get("url", "")
-            ext = info.get("ext", "jpg")
-            return JSONResponse({"title": info.get("title", "Image"), "thumbnail": proxy_url(direct_url), "thumbnails": [], "duration": 0, "uploader": info.get("uploader") or "", "view_count": info.get("view_count"), "platform": info.get("extractor_key", ""), "content_type": "image", "images": [{"index": 0, "url": proxy_url(direct_url), "thumbnail": proxy_url(direct_url), "raw_url": direct_url, "ext": ext, "width": info.get("width"), "height": info.get("height"), "title": info.get("title", "Image")}], "formats": [], "url": url, "count": 1, "warning": platform_warning})
-
-        # Build format list: combined (progressive) video streams stream
-        # instantly with no processing needed. Separate video-only formats
-        # are also collected (best_video_only / best_audio_only below) so
-        # the frontend can offer a "merge in your browser" option via
-        # ffmpeg.wasm for qualities beyond what's available progressively.
-        formats, seen = [], set()
-        video_only_by_ext = {}   # ext -> best video-only format dict
-        audio_only_by_ext = {}   # ext -> best audio-only format dict
-
-        for f in info.get("formats", []):
-            fid = f.get("format_id", ""); ext = f.get("ext", "") or ""
-            vcodec = f.get("vcodec") or "none"; acodec = f.get("acodec") or "none"
-            height = f.get("height"); abr = f.get("abr") or f.get("tbr")
-            filesize = f.get("filesize") or f.get("filesize_approx"); fps = f.get("fps")
-            has_v = vcodec != "none"; has_a = acodec != "none"; tbr = f.get("tbr") or 0
-
-            if has_v and has_a and height:
-                fps_val = int(fps) if fps else 0
-                key = f"v_{height}_{fps_val}_{ext}"
-                if key not in seen:
-                    seen.add(key)
-                    fps_tag = f' {int(fps)}fps' if fps else ''
-                    size_tag = f' - {format_bytes(filesize)}' if filesize else ''
-                    formats.append({'format_id': fid, 'type': 'video', 'quality': f'{height}p', 'ext': ext, 'height': height, 'fps': int(fps) if fps else None, 'filesize': format_bytes(filesize) if filesize else 'N/A', 'label': f'{height}p{fps_tag} - {ext.upper()}{size_tag}', 'tbr': tbr})
-            elif not has_v and has_a:
-                effective_abr = abr or tbr
-                if effective_abr:
-                    key = f"a_{int(effective_abr)}_{ext}"
-                    if key not in seen:
-                        seen.add(key)
-                        formats.append({"format_id": fid, "type": "audio", "quality": f"{int(effective_abr)}kbps", "ext": ext, "abr": effective_abr, "filesize": format_bytes(filesize) if filesize else "N/A", "label": f"{int(effective_abr)}kbps - {ext.upper()}"})
-
-            # Track best video-only per container family, for browser-merge fallback
-            if has_v and not has_a and height:
-                cur = video_only_by_ext.get(ext)
-                if not cur or height > cur["height"]:
-                    video_only_by_ext[ext] = {"format_id": fid, "height": height, "ext": ext, "fps": int(fps) if fps else None, "filesize": filesize}
-
-            # Track best audio-only per container family
-            if has_a and not has_v:
-                effective_abr = abr or tbr or 0
-                cur = audio_only_by_ext.get(ext)
-                if not cur or effective_abr > cur["abr"]:
-                    audio_only_by_ext[ext] = {"format_id": fid, "ext": ext, "abr": effective_abr}
-
-        video_fmts = sorted([f for f in formats if f["type"] == "video"], key=lambda x: (x["height"], x.get("fps") or 0, x.get("tbr") or 0), reverse=True)
-        audio_fmts = sorted([f for f in formats if f["type"] == "audio"], key=lambda x: x.get("abr", 0), reverse=True)
-
-        # Pick the best browser-mergeable pair: highest-resolution video-only
-        # stream paired with the matching-container-family best audio-only
-        # stream (mp4 pairs with m4a, webm pairs with webm — same convention
-        # yt-dlp itself uses when it merges server-side with FFmpeg).
-        merge_option = None
-        EXT_AUDIO_PAIR = {"mp4": "m4a", "webm": "webm", "mkv": "m4a"}
-        best_video_only = max(video_only_by_ext.values(), key=lambda v: v["height"], default=None) if video_only_by_ext else None
-        if best_video_only:
-            preferred_audio_ext = EXT_AUDIO_PAIR.get(best_video_only["ext"])
-            audio_pick = audio_only_by_ext.get(preferred_audio_ext) if preferred_audio_ext else None
-            if not audio_pick and audio_only_by_ext:
-                audio_pick = max(audio_only_by_ext.values(), key=lambda a: a["abr"])
-            # Only worth offering if it actually beats the best progressive quality
-            best_progressive_height = video_fmts[0]["height"] if video_fmts else 0
-            if audio_pick and best_video_only["height"] > best_progressive_height:
-                out_ext = "mp4" if best_video_only["ext"] in ("mp4", "mkv") else "webm"
-                merge_option = {
-                    "video_format_id": best_video_only["format_id"],
-                    "audio_format_id": audio_pick["format_id"],
-                    "height": best_video_only["height"],
-                    "fps": best_video_only.get("fps"),
-                    "output_ext": out_ext,
-                    "label": f"{best_video_only['height']}p{' ' + str(best_video_only['fps']) + 'fps' if best_video_only.get('fps') else ''} · merges in your browser",
-                }
-
-        if not video_fmts and detect_content_type(info) == "video" and not merge_option:
-            no_progressive_warning = "No downloadable video quality was found for this content."
-            platform_warning = (platform_warning + " " + no_progressive_warning) if platform_warning else no_progressive_warning
-
-        thumbs = best_thumbnails(info)
-        best_thumb_raw = thumbs[0]["raw_url"] if thumbs else (info.get("thumbnail") or "")
-
-        duration = info.get("duration") or 0
-        mins, secs = divmod(int(duration), 60)
-        hours, mins = divmod(mins, 60)
-        duration_str = f"{hours}:{mins:02d}:{secs:02d}" if hours else f"{mins}:{secs:02d}"
-
-        return JSONResponse({"title": info.get("title", ""), "thumbnail": proxy_url(best_thumb_raw), "thumbnails": thumbs, "duration": duration_str, "duration_sec": int(duration), "uploader": info.get("uploader") or info.get("channel") or "", "view_count": info.get("view_count"), "platform": info.get("extractor_key", ""), "content_type": content_type, "images": [], "formats": video_fmts + audio_fmts, "merge_option": merge_option, "url": url, "warning": platform_warning})
-
-    except yt_dlp.utils.DownloadError as e:
-        print(f"  [!!] DOWNLOADER /info ERROR [{_detect_platform(url)}]: {e}\n       URL: {url}")
-        return JSONResponse({"error": friendly_error(str(e), url)}, status_code=400)
-    except Exception as e:
-        print(f"  [!!] DOWNLOADER /info UNEXPECTED [{_detect_platform(url)}]: {e}\n       URL: {url}")
-        return JSONResponse({"error": f"Failed to fetch info: {e}"}, status_code=500)
-
-
-# STREAMING DOWNLOAD
-# No disk writes, no background threads, no progress polling. Each
-# endpoint resolves the real media URL via yt-dlp, then pipes the
-# response body straight through to the client as it downloads.
-
-CHUNK_SIZE = 256 * 1024  # 256 KB per chunk
-
-def _stream_from_url(direct_url, headers, filename, media_type):
-    def gen():
-        with req_lib.get(direct_url, headers=headers, stream=True, timeout=60) as r:
-            r.raise_for_status()
-            for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
-                if chunk:
-                    yield chunk
-    safe_name = urllib.parse.quote(filename)
-    return StreamingResponse(
-        gen(),
-        media_type=media_type,
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{safe_name}"},
-    )
-
-
-@router.get("/stream/video")
-async def stream_video(url: str, format_id: str, title: str = "video"):
-    """Stream a progressive (video+audio combined) format directly -- no FFmpeg merge needed."""
-    try:
-        with yt_dlp.YoutubeDL(build_ydl_opts_for_url(url, {"format": format_id})) as ydl:
-            info = ydl.extract_info(url, download=False)
-        direct_url = info.get("url")
-        ext = info.get("ext", "mp4")
-        if not direct_url:
-            for f in info.get("formats", []):
-                if f.get("format_id") == format_id:
-                    direct_url = f.get("url")
-                    ext = f.get("ext", ext)
-                    break
-        if not direct_url:
-            return JSONResponse({"error": "Could not resolve a direct stream URL for this format. Try fetching info again."}, status_code=400)
-
-        headers = info.get("http_headers") or get_headers_for_url(url)
-        filename = f"{safe_win_filename(title)}.{ext}"
-        return _stream_from_url(direct_url, headers, filename, f"video/{ext}")
-    except yt_dlp.utils.DownloadError as e:
-        return JSONResponse({"error": friendly_error(str(e), url)}, status_code=400)
-    except Exception as e:
-        print(f"  [!!] DOWNLOADER /stream/video ERROR: {e}\n       URL: {url}")
-        return JSONResponse({"error": f"Download failed: {e}"}, status_code=500)
-
-
-@router.get("/stream/audio")
-async def stream_audio(url: str, format_id: str = "", title: str = "audio"):
-    """Stream the best available audio-only format in its native container (no MP3 transcode)."""
-    try:
-        fmt = format_id if format_id else "bestaudio/best"
-        with yt_dlp.YoutubeDL(build_ydl_opts_for_url(url, {"format": fmt})) as ydl:
-            info = ydl.extract_info(url, download=False)
-        direct_url = info.get("url")
-        ext = info.get("ext", "m4a")
-        if not direct_url:
-            for f in info.get("formats", []):
-                if f.get("format_id") == format_id:
-                    direct_url = f.get("url")
-                    ext = f.get("ext", ext)
-                    break
-        if not direct_url:
-            return JSONResponse({"error": "Could not resolve a direct audio URL. Try fetching info again."}, status_code=400)
-
-        headers = info.get("http_headers") or get_headers_for_url(url)
-        filename = f"{safe_win_filename(title)}.{ext}"
-        return _stream_from_url(direct_url, headers, filename, f"audio/{ext}")
-    except yt_dlp.utils.DownloadError as e:
-        return JSONResponse({"error": friendly_error(str(e), url)}, status_code=400)
-    except Exception as e:
-        print(f"  [!!] DOWNLOADER /stream/audio ERROR: {e}\n       URL: {url}")
-        return JSONResponse({"error": f"Download failed: {e}"}, status_code=500)
-
-
-@router.get("/stream/thumbnail")
-async def stream_thumbnail(url: str, title: str = "thumbnail"):
-    """Stream a single thumbnail/image straight through as an attachment."""
-    raw_url = unwrap_proxy(url)
-    if not raw_url:
-        return JSONResponse({"error": "No thumbnail URL provided."}, status_code=400)
-    try:
-        headers = get_headers_for_url(raw_url)
-        r = req_lib.get(raw_url, headers=headers, timeout=30)
-        r.raise_for_status()
-        content_type = r.headers.get("content-type", "image/jpeg")
-        ext = "jpg"
-        if "png" in content_type: ext = "png"
-        elif "webp" in content_type: ext = "webp"
-        elif "gif" in content_type: ext = "gif"
-        filename = f"{safe_win_filename(title)}.{ext}"
-        return Response(r.content, media_type=content_type, headers={"Content-Disposition": f"attachment; filename*=UTF-8''{urllib.parse.quote(filename)}"})
-    except Exception as e:
-        return JSONResponse({"error": f"Failed to download thumbnail: {e}"}, status_code=502)
-
-
-@router.post("/stream/gallery")
-async def stream_gallery(request: Request):
-    """Build a ZIP of selected gallery images in memory (no disk) and stream it."""
-    data = await request.json()
-    image_urls = data.get("image_urls", [])
-    title = data.get("title", "images")
-
-    if not image_urls:
-        return JSONResponse({"error": "No images selected."}, status_code=400)
-
-    buf = io.BytesIO()
-    count = 0
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for i, img_url in enumerate(image_urls):
-            raw_url = unwrap_proxy(img_url)
-            if not raw_url:
-                continue
-            try:
-                headers = get_headers_for_url(raw_url)
-                r = req_lib.get(raw_url, headers=headers, timeout=30)
-                r.raise_for_status()
-                content_type = r.headers.get("content-type", "image/jpeg")
-                ext = "jpg"
-                if "png" in content_type: ext = "png"
-                elif "webp" in content_type: ext = "webp"
-                elif "gif" in content_type: ext = "gif"
-                zf.writestr(f"image_{i+1:03d}.{ext}", r.content)
-                count += 1
-            except Exception:
-                continue
-
-    if count == 0:
-        return JSONResponse({"error": "Failed to download any images. CDN URLs may have expired -- try fetching info again."}, status_code=502)
-
-    buf.seek(0)
-    zip_name = f"{safe_win_filename(title)}_images.zip"
-    return StreamingResponse(
-        iter([buf.getvalue()]),
-        media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{urllib.parse.quote(zip_name)}"},
-    )
+@router.get('/progress/{task_id}')
+async def progress(task_id:str):return JSONResponse(progress_store.get(task_id,{'status':'not_found'}))
+@router.get('/file/{task_id}')
+async def file(task_id:str):
+    d=progress_store.get(task_id,{});p=d.get('filepath','')
+    if d.get('status')!='done' or not os.path.exists(p):return JSONResponse({'error':'File is not ready'},status_code=404)
+    return FileResponse(p,filename=d.get('filename','download'))
+@router.delete('/cleanup/{task_id}')
+async def cleanup(task_id:str):
+    shutil.rmtree(os.path.join(DOWNLOAD_DIR,task_id),ignore_errors=True);progress_store.pop(task_id,None);return {'ok':True}

@@ -1,0 +1,22 @@
+WELL Downloader
+================
+1. Install Python 3.10+ and FFmpeg.
+2. Run INSTALL.bat to create the venv and install requirements.txt.
+3. Run WELL_DOWNLOADER_START.bat to start the server.
+4. Open http://localhost:5555.
+
+If the project is started through WELLLauncher, use START_WITH_WELL_LAUNCHER.bat. It does not use pause so WELLLauncher can monitor the process and server exit code.
+
+Update yt-dlp:
+- Stop the WELL Downloader server first.
+- Run UPDATE_YTDLP.bat from the project folder.
+- After it finishes, run WELL_DOWNLOADER_START.bat again.
+- The update banner stays visible until yt-dlp in the venv is up to date.
+
+Cache:
+- Temporary files are stored in temp\downloader.
+- Finished and failed tasks are cleaned automatically after 4 hours.
+- To clear all cache manually, stop the server and run CLEAR_CACHE.bat.
+
+Features: YouTube, TikTok video and carousel/photo posts, public Telegram posts, public Pinterest pins, and other public platforms supported by yt-dlp.
+Instagram is not supported because it usually requires cookies/login. Spotify and other DRM services are also not supported.

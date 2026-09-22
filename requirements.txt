@@ -1,13 +1,5 @@
-# ── Web Framework ──────────────────────────
 fastapi
 uvicorn[standard]
 python-multipart
-
-# ── Downloader ─────────────────────────────
 yt-dlp
 requests
-
-# ── Notes ──────────────────────────────────
-# FFmpeg is intentionally NOT required. This app streams media directly
-# from the source to the browser without merging or transcoding, which
-# keeps it dependency-free and deployable on serverless platforms.
