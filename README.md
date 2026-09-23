@@ -4,6 +4,24 @@ WELL Downloader is a local Python media downloader for public video, audio, imag
 
 > **Important:** Run the full downloader on a machine with Python, FFmpeg, writable storage, and network access. Vercel is suitable for the static UI or a demo, but it is not the recommended runtime for large downloads or background media processing.
 
+## Vercel demo deployment
+
+This repository includes `vercel.json` and `api/index.py` so Vercel can serve the FastAPI application as a lightweight UI demo. When the `VERCEL` environment variable is present, the app uses `/tmp` instead of the repository filesystem, disables the long-lived cache reaper, reports `demo_mode`, and shows sample metadata in the browser. The demo is intentionally non-downloading: it lets visitors preview the layout, quality selector, thumbnail selector, support matrix, and download workflow without pretending that a serverless function can reliably process large media files.
+
+The public header identifies the author as **Samuel Extehines Heydemans** and links directly to [github.com/samwhine](https://github.com/samwhine). The interface uses the WELL light-blue/deep-blue gradient branding. Backend activity logs record `info`, `download_start`, `download_done`, and `download_error` events with a short anonymized client token, action, media type, sanitized host/path, and task identifier. Raw IP addresses, query strings, and full source URLs are not written to the logs.
+
+To deploy the demo, import this repository into Vercel with the repository root as the project root. No FFmpeg installation is required for the demo UI. The expected deployment files are:
+
+```text
+vercel.json
+api/index.py
+main.py
+routers/downloader.py
+static/
+```
+
+For real downloads, run `WELL_DOWNLOADER_START.bat` on Windows or `python main.py` on a Linux/macOS machine with Python, FFmpeg, writable storage, and a process that remains available while a download is fetched and merged. Vercel's serverless filesystem is temporary, functions have execution and response limits, and background threads cannot be treated as durable workers. A VPS or local machine is the correct full-runtime location.
+
 ## Supported websites
 
 | Website or source | Support | Notes |

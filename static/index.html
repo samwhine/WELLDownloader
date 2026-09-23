@@ -74,9 +74,9 @@
     --border2:     rgba(255,255,255,0.14);
     --text:        #f0f0f8;
     --muted:       #8888a8;
-    --accent:      #7c6af7;
-    --accent2:     #a78bfa;
-    --accent-glow: rgba(124,106,247,0.28);
+    --accent:      #6bbcff;
+    --accent2:     #9bd8ff;
+    --accent-glow: rgba(77,166,255,0.28);
     --green:       #4ade80;
     --orange:      #fb923c;
     --pink:        #f472b6;
@@ -103,8 +103,8 @@
     display: flex;
     /* Animated mesh background */
     background-image:
-      radial-gradient(ellipse 80% 60% at 10% 5%, rgba(124,106,247,0.18) 0%, transparent 60%),
-      radial-gradient(ellipse 60% 50% at 90% 85%, rgba(34,211,238,0.10) 0%, transparent 55%),
+      radial-gradient(ellipse 80% 60% at 10% 5%, rgba(64,137,255,0.22) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 90% 85%, rgba(34,211,238,0.14) 0%, transparent 55%),
       radial-gradient(ellipse 70% 80% at 50% 50%, rgba(8,8,16,1) 0%, rgba(8,8,16,1) 100%);
     background-attachment: fixed;
   }
@@ -114,7 +114,7 @@
     width: var(--sidebar-w);
     min-width: var(--sidebar-w);
     height: 100vh;
-    background: rgba(14,14,22,0.75);
+    background: linear-gradient(180deg, rgba(11,23,42,0.88), rgba(9,12,24,0.82));
     backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
     border-right: 1px solid var(--glass-border);
@@ -202,12 +202,12 @@
   }
 
   .nav-item.active {
-    background: rgba(124,106,247,0.12);
+    background: rgba(77,166,255,0.12);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     color: var(--text);
-    border-color: rgba(124,106,247,0.3);
-    box-shadow: 0 2px 12px rgba(124,106,247,0.12);
+    border-color: rgba(77,166,255,0.3);
+    box-shadow: 0 2px 12px rgba(77,166,255,0.12);
   }
 
   .nav-item.active::before {
@@ -254,7 +254,7 @@
   }
 
   .nav-subitem.active {
-    background: rgba(124,106,247,0.14);
+    background: rgba(77,166,255,0.14);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     color: var(--text);
@@ -278,10 +278,10 @@
     font-size: 9px;
     padding: 2px 6px;
     border-radius: 20px;
-    background: rgba(124,106,247,0.15);
+    background: rgba(77,166,255,0.15);
     backdrop-filter: blur(8px);
     color: var(--accent2);
-    border: 1px solid rgba(124,106,247,0.25);
+    border: 1px solid rgba(77,166,255,0.25);
   }
 
   .sidebar-footer {
@@ -338,18 +338,18 @@
     overflow-y: auto;
     padding: 28px;
     scrollbar-width: thin;
-    scrollbar-color: rgba(124,106,247,0.3) transparent;
+    scrollbar-color: rgba(77,166,255,0.3) transparent;
   }
   .panel::-webkit-scrollbar { width: 5px; }
-  .panel::-webkit-scrollbar-thumb { background: rgba(124,106,247,0.3); border-radius: 4px; }
-  .panel::-webkit-scrollbar-thumb:hover { background: rgba(124,106,247,0.5); }
+  .panel::-webkit-scrollbar-thumb { background: rgba(77,166,255,0.3); border-radius: 4px; }
+  .panel::-webkit-scrollbar-thumb:hover { background: rgba(77,166,255,0.5); }
 
   /* ─── HOME PANEL ─── */
   .home-hero {
-    background: linear-gradient(135deg, rgba(124,106,247,0.07) 0%, rgba(34,211,238,0.04) 100%);
+    background: linear-gradient(135deg, rgba(77,166,255,0.07) 0%, rgba(34,211,238,0.04) 100%);
     backdrop-filter: blur(20px) saturate(1.5);
     -webkit-backdrop-filter: blur(20px) saturate(1.5);
-    border: 1px solid rgba(124,106,247,0.2);
+    border: 1px solid rgba(77,166,255,0.2);
     border-radius: calc(var(--radius) + 4px);
     padding: 44px 48px;
     margin-bottom: 24px;
@@ -437,10 +437,10 @@
   }
 
   .feature-card:hover {
-    border-color: rgba(124,106,247,0.5);
-    background: rgba(124,106,247,0.08);
+    border-color: rgba(77,166,255,0.5);
+    background: rgba(77,166,255,0.08);
     transform: translateY(-3px);
-    box-shadow: 0 12px 32px rgba(124,106,247,0.18), 0 0 0 1px rgba(124,106,247,0.2);
+    box-shadow: 0 12px 32px rgba(77,166,255,0.18), 0 0 0 1px rgba(77,166,255,0.2);
   }
   .feature-card::after {
     content: '→';
@@ -583,9 +583,9 @@
   }
 
   .drop-zone:hover, .drop-zone.drag-over {
-    border-color: rgba(124,106,247,0.6);
-    background: rgba(124,106,247,0.1);
-    box-shadow: 0 0 0 4px rgba(124,106,247,0.08), inset 0 0 24px rgba(124,106,247,0.06);
+    border-color: rgba(77,166,255,0.6);
+    background: rgba(77,166,255,0.1);
+    box-shadow: 0 0 0 4px rgba(77,166,255,0.08), inset 0 0 24px rgba(77,166,255,0.06);
   }
 
   .drop-zone-icon {
@@ -669,12 +669,12 @@
 
   .fmt-chip:hover { border-color: var(--accent); color: var(--text); }
   .fmt-chip.active {
-    border-color: rgba(124,106,247,0.6);
-    background: rgba(124,106,247,0.15);
+    border-color: rgba(77,166,255,0.6);
+    background: rgba(77,166,255,0.15);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     color: var(--accent2);
-    box-shadow: 0 2px 12px rgba(124,106,247,0.15);
+    box-shadow: 0 2px 12px rgba(77,166,255,0.15);
   }
 
   /* ─── BUTTONS ─── */
@@ -702,11 +702,11 @@
   .btn-primary {
     background: linear-gradient(135deg, var(--accent) 0%, #9060f5 100%);
     color: #fff;
-    box-shadow: 0 4px 20px rgba(124,106,247,0.35);
+    box-shadow: 0 4px 20px rgba(77,166,255,0.35);
     border: 1px solid rgba(255,255,255,0.12);
   }
   .btn-primary:not(:disabled):hover { 
-    box-shadow: 0 8px 28px rgba(124,106,247,0.45);
+    box-shadow: 0 8px 28px rgba(77,166,255,0.45);
     background: linear-gradient(135deg, #8b7af9 0%, #9868f8 100%);
   }
 
@@ -719,8 +719,8 @@
   }
   .btn-ghost:not(:disabled):hover { 
     color: var(--text); 
-    border-color: rgba(124,106,247,0.4);
-    background: rgba(124,106,247,0.08);
+    border-color: rgba(77,166,255,0.4);
+    background: rgba(77,166,255,0.08);
   }
 
   .btn-success {
@@ -788,10 +788,10 @@
   /* ─── PROGRESS / STATUS ─── */
   .progress-wrap {
     display: none;
-    background: rgba(124,106,247,0.06);
+    background: rgba(77,166,255,0.06);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(124,106,247,0.2);
+    border: 1px solid rgba(77,166,255,0.2);
     border-radius: var(--radius);
     padding: 18px 20px;
     margin-bottom: 12px;
@@ -956,9 +956,9 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   @keyframes btnPulse {
-    0%   { box-shadow: 0 4px 20px rgba(124,106,247,0.35); transform: scale(1); }
-    50%  { box-shadow: 0 0 0 8px rgba(124,106,247,0.2), 0 4px 20px rgba(124,106,247,0.5); transform: scale(1.02); }
-    100% { box-shadow: 0 4px 20px rgba(124,106,247,0.35); transform: scale(1); }
+    0%   { box-shadow: 0 4px 20px rgba(77,166,255,0.35); transform: scale(1); }
+    50%  { box-shadow: 0 0 0 8px rgba(77,166,255,0.2), 0 4px 20px rgba(77,166,255,0.5); transform: scale(1.02); }
+    100% { box-shadow: 0 4px 20px rgba(77,166,255,0.35); transform: scale(1); }
   }
 
   @keyframes glassShimmer {
@@ -968,7 +968,7 @@
 
   /* Glow pulse on active sidebar items */
   .nav-item.active .nav-icon {
-    filter: drop-shadow(0 0 6px rgba(124,106,247,0.6));
+    filter: drop-shadow(0 0 6px rgba(77,166,255,0.6));
   }
 
   @keyframes fadeUp {
@@ -1165,7 +1165,7 @@
     font-family: 'DM Mono', monospace;
   }
 
-  .chip.blue { background: rgba(124,106,247,0.1); border-color: rgba(124,106,247,0.3); color: var(--accent2); }
+  .chip.blue { background: rgba(77,166,255,0.1); border-color: rgba(77,166,255,0.3); color: var(--accent2); }
   .chip.green { background: rgba(74,222,128,0.1); border-color: rgba(74,222,128,0.3); color: var(--green); }
   .chip.orange { background: rgba(251,146,60,0.1); border-color: rgba(251,146,60,0.3); color: var(--orange); }
 
@@ -1185,7 +1185,7 @@
 
   .thumb-opt-check {
     position: absolute; inset: 0;
-    background: rgba(124,106,247,0.5);
+    background: rgba(77,166,255,0.5);
     display: flex; align-items: center; justify-content: center;
     font-size: 14px; color: #fff; font-weight: 700;
     opacity: 0; transition: opacity 0.15s;
@@ -1279,8 +1279,8 @@
     transition: background 0.15s, border-color 0.15s;
   }
   .hist-item-clickable:hover {
-    background: rgba(124,106,247,0.10) !important;
-    border-color: rgba(124,106,247,0.35) !important;
+    background: rgba(77,166,255,0.10) !important;
+    border-color: rgba(77,166,255,0.35) !important;
   }
   .hist-item-clickable:hover .hi-title {
     color: var(--accent2);
@@ -1288,8 +1288,8 @@
   .hi-reuse {
     font-size: 10px;
     color: var(--accent2);
-    background: rgba(124,106,247,0.12);
-    border: 1px solid rgba(124,106,247,0.25);
+    background: rgba(77,166,255,0.12);
+    border: 1px solid rgba(77,166,255,0.25);
     border-radius: 4px;
     padding: 2px 7px;
     white-space: nowrap;
@@ -1491,7 +1491,7 @@
     overflow: hidden;
   }
   .daw-track:last-child { border-bottom: none; }
-  .daw-track:hover { background: rgba(124,106,247,0.03); }
+  .daw-track:hover { background: rgba(77,166,255,0.03); }
 
   .daw-track-left {
     display: flex; flex-direction: column; justify-content: center;
@@ -1711,8 +1711,8 @@
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border-radius: var(--radius);
-    border: 1px solid rgba(124,106,247,0.25);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(124,106,247,0.15);
+    border: 1px solid rgba(77,166,255,0.25);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(77,166,255,0.15);
     margin-top: 8px;
   }
 
@@ -1750,7 +1750,7 @@
   /* Selection region highlight */
   .trim-selection {
     position: absolute; top: 0; bottom: 0;
-    background: rgba(124,106,247,0.12);
+    background: rgba(77,166,255,0.12);
     border-top: 2px solid var(--accent);
     border-bottom: 2px solid var(--accent);
     pointer-events: none; z-index: 2;
@@ -1760,7 +1760,7 @@
     position: absolute; top: 0; bottom: 0; width: 20px;
     background: var(--accent); cursor: ew-resize; z-index: 4;
     display: flex; align-items: center; justify-content: center;
-    border-radius: 4px; box-shadow: 0 0 0 2px rgba(124,106,247,0.3);
+    border-radius: 4px; box-shadow: 0 0 0 2px rgba(77,166,255,0.3);
     transition: background 0.15s;
   }
   .trim-handle:hover { background: var(--accent2); }
@@ -1817,7 +1817,7 @@
   }
   .crop-box {
     position: absolute; border: 2px solid var(--accent);
-    background: rgba(124,106,247,0.12); z-index: 3; pointer-events: none;
+    background: rgba(77,166,255,0.12); z-index: 3; pointer-events: none;
     box-sizing: border-box;
   }
   .crop-box-outside {
@@ -1997,7 +1997,7 @@
     flex-shrink: 0;
     transition: all 0.18s;
   }
-  #mobile-menu-btn:hover { background: rgba(124,106,247,0.15); border-color: rgba(124,106,247,0.4); }
+  #mobile-menu-btn:hover { background: rgba(77,166,255,0.15); border-color: rgba(77,166,255,0.4); }
 
   /* Smooth tab panel transitions */
   .tab-panel { animation: panelIn 0.22s cubic-bezier(0.4,0,0.2,1); }
@@ -2028,13 +2028,13 @@
   .back-btn {
     display: inline-flex; align-items: center; gap: 6px;
     font-family: 'DM Mono', monospace; font-size: 11px;
-    color: var(--accent2); background: rgba(124,106,247,0.1);
-    border: 1px solid rgba(124,106,247,0.25);
+    color: var(--accent2); background: rgba(77,166,255,0.1);
+    border: 1px solid rgba(77,166,255,0.25);
     border-radius: 6px; padding: 5px 12px;
     cursor: pointer; margin-bottom: 12px;
     transition: all 0.15s; backdrop-filter: blur(8px);
   }
-  .back-btn:hover { background: rgba(124,106,247,0.18); border-color: rgba(124,106,247,0.4); }
+  .back-btn:hover { background: rgba(77,166,255,0.18); border-color: rgba(77,166,255,0.4); }
   .back-btn.hidden { display: none; }
 
 
@@ -2054,7 +2054,7 @@
   }
   select option:hover,
   select option:checked {
-    background: rgba(124,106,247,0.3);
+    background: rgba(77,166,255,0.3);
   }
 
   /* ═══════════════════════════════════════
@@ -2077,7 +2077,7 @@
     align-items: center;
     justify-content: center;
     padding: 16px 28px;
-    background: rgba(9,9,17,0.82);
+    background: linear-gradient(105deg, rgba(9,20,38,0.94), rgba(9,9,17,0.88));
     backdrop-filter: blur(20px) saturate(1.5);
     -webkit-backdrop-filter: blur(20px) saturate(1.5);
     position: relative;
@@ -2118,22 +2118,27 @@
   }
 
   .app-header-context {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     color: var(--muted);
     font-size: 10px;
-    letter-spacing: 1.4px;
-    text-transform: uppercase;
+    letter-spacing: .4px;
     white-space: nowrap;
   }
+  .app-author-label { color: var(--text); font-weight: 600; }
+  .app-github { color: var(--accent2); text-decoration: none; font-weight: 600; }
+  .app-github:hover { color: var(--text); }
 
   .app-panel {
     flex: 1;
     overflow-y: auto;
     padding: 32px 28px 48px;
     scrollbar-width: thin;
-    scrollbar-color: rgba(124,106,247,0.3) transparent;
+    scrollbar-color: rgba(77,166,255,0.3) transparent;
   }
   .app-panel::-webkit-scrollbar { width: 5px; }
-  .app-panel::-webkit-scrollbar-thumb { background: rgba(124,106,247,0.3); border-radius: 4px; }
+  .app-panel::-webkit-scrollbar-thumb { background: rgba(77,166,255,0.3); border-radius: 4px; }
 
   /* ─── Two-column layout: history (left) + downloader (right) ─── */
   .app-layout {
@@ -2222,12 +2227,15 @@
   }
 
   .quality-note { font-size: 11px; color: var(--muted); line-height: 1.5; margin-bottom: 14px; }
+  .demo-banner { display: none; margin: 0 0 14px; padding: 12px 16px; border: 1px solid rgba(77,166,255,0.35); border-radius: var(--radius-sm); background: rgba(77,166,255,0.10); color: var(--muted); font-size: 11px; line-height: 1.55; }
+  .demo-banner.visible { display: block; }
+  .demo-banner strong { color: var(--accent2); }
 
   .support-matrix { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
   .support-list { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; }
   .support-list h3 { font-family: 'Syne', sans-serif; font-size: 12px; margin-bottom: 8px; }
-  .support-list ul { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
-  .support-list li { font-size: 10px; color: var(--muted); border: 1px solid var(--border2); border-radius: 999px; padding: 4px 8px; }
+  .support-list ul { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 6px; align-items: stretch; }
+  .support-list li { min-height: 30px; display: flex; align-items: center; font-size: 10px; color: var(--muted); border: 1px solid var(--border2); border-radius: 8px; padding: 5px 9px; line-height: 1.3; }
   .support-list.supported h3 { color: var(--green); }
   .support-list.blocked h3 { color: var(--orange); }
   @media (max-width: 640px) { .support-matrix { grid-template-columns: 1fr; } }
@@ -2251,7 +2259,10 @@
         <div class="logo-mark"><span class="logo-well">WELL</span><span class="logo-suite">DOWNLOADER</span></div>
         <span class="logo-tag">Media Downloader</span>
       </div>
-      <div class="app-header-context">Public media workspace</div>
+      <div class="app-header-context">
+        <span class="app-author-label">Author: Samuel Extehines Heydemans</span>
+        <a class="app-github" href="https://github.com/samwhine" target="_blank" rel="noopener noreferrer">GitHub: samwhine ↗</a>
+      </div>
     </div>
   </div>
 
@@ -2275,6 +2286,7 @@
         <h2>Media Downloader</h2>
         <p>Download video, audio, images, and thumbnails from YouTube, TikTok, Twitter/X, Reddit, SoundCloud, and 1000+ platforms.</p>
       </div>
+      <div class="demo-banner" id="dl-demo-banner"><strong>Demo preview:</strong> this Vercel deployment shows the downloader interface and sample metadata. Run the project locally or on a VPS with FFmpeg for real downloads.</div>
 
       <!-- URL input -->
             <div class="card" style="margin-bottom:14px">
@@ -2518,6 +2530,25 @@ let dlTaskId = null;
 let dlPollT  = null;
 let dlHistory = [];
 try { dlHistory = JSON.parse(localStorage.getItem('well_dl_history')||'[]'); } catch {}
+let wellDemoMode = false;
+
+const DEMO_INFO = {
+  title: 'Sample public video — interface preview',
+  thumbnail: '/og-image.png',
+  thumbnails: [
+    { url:'/og-image.png', raw_url:'/og-image.png', width:1920, height:1080, label:'1920×1080' },
+    { url:'/og-image.png', raw_url:'/og-image.png', width:1280, height:720, label:'1280×720' },
+    { url:'/og-image.png', raw_url:'/og-image.png', width:854, height:480, label:'854×480' },
+    { url:'/og-image.png', raw_url:'/og-image.png', width:640, height:360, label:'640×360' }
+  ],
+  duration: '2:18', duration_sec: 138, uploader: 'WELL Demo', platform: 'Demo preview', content_type: 'video', images: [],
+  formats: [
+    { format_id:'demo-1080', type:'video', height:1080, fps:30, ext:'mp4', filesize:'84 MB', tbr:5200 },
+    { format_id:'demo-720', type:'video', height:720, fps:30, ext:'mp4', filesize:'42 MB', tbr:2600 },
+    { format_id:'demo-480', type:'video', height:480, fps:30, ext:'mp4', filesize:'24 MB', tbr:1500 },
+    { format_id:'demo-audio', type:'audio', abr:192, ext:'m4a', filesize:'3.2 MB' }
+  ], url: 'https://example.com/demo'
+};
 
 // Current selected quality format_id
 let dlSelQuality = null; // {format_id, height, ext}
@@ -2525,8 +2556,10 @@ let dlSelQuality = null; // {format_id, height, ext}
 async function dlCheckSrv() {
   try {
     const d = await (await fetch(`${DL_API}/status`, {signal:AbortSignal.timeout(10000)})).json();
+    wellDemoMode = !!d.demo_mode;
     document.getElementById('dl-srv-dot').className = 'srv-dot ' + (d.ffmpeg_found?'online':'offline');
-    document.getElementById('dl-srv-label').textContent = d.ffmpeg_found ? 'Online · FFmpeg OK' : 'Online · FFmpeg NOT FOUND!';
+    document.getElementById('dl-srv-label').textContent = wellDemoMode ? 'Demo preview · downloads disabled' : (d.ffmpeg_found ? 'Online · FFmpeg OK' : 'Online · FFmpeg NOT FOUND!');
+    document.getElementById('dl-demo-banner')?.classList.toggle('visible', wellDemoMode);
   } catch {
     // Only show offline after 2 consecutive failures
     dlCheckSrv._fails = (dlCheckSrv._fails || 0) + 1;
@@ -2631,6 +2664,13 @@ async function dlFetch() {
     if (b) { b.disabled = false; b.style.opacity = ''; b.style.cursor = ''; }
   });
   setBtn('dl-fetch-btn', true, 'Fetching...');
+
+  if (wellDemoMode) {
+    dlInfo = { ...DEMO_INFO };
+    dlRenderPanel(dlInfo);
+    setBtn('dl-fetch-btn', false, 'Preview Ready');
+    return;
+  }
 
   try {
     const controller = new AbortController();
@@ -2902,6 +2942,10 @@ function dlUpdateSelCount() {
 }
 
 async function dlStart(type) {
+  if (wellDemoMode) {
+    dlShowErr('Demo preview only. Run WELL Downloader locally or on a VPS with Python, FFmpeg, and writable storage to download files.');
+    return;
+  }
   if (!dlInfo) return;
   if (type === 'images' && dlSelImages.size === 0) { dlShowErr('Please select at least 1 image.'); return; }
 

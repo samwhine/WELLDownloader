@@ -43,6 +43,16 @@ async def favicon():
     return FileResponse(BASE_DIR / "static" / "favicon.ico")
 
 
+@app.get("/og-image.png")
+async def og_image_png():
+    return FileResponse(BASE_DIR / "static" / "og-image.png", media_type="image/png")
+
+
+@app.get("/og-image.svg")
+async def og_image_svg():
+    return FileResponse(BASE_DIR / "static" / "og-image.svg", media_type="image/svg+xml")
+
+
 @app.get("/robots.txt", response_class=PlainTextResponse)
 async def robots():
     return FileResponse(BASE_DIR / "static" / "robots.txt", media_type="text/plain")

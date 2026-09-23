@@ -6,11 +6,16 @@ from fastapi.responses import Response, FileResponse, JSONResponse
 import yt_dlp
 import importlib.metadata as metadata
 import os, threading, uuid, shutil, requests as req_lib
-import re, zipfile, urllib.parse, time
+import re, zipfile, urllib.parse, time, hashlib, logging
 
 router = APIRouter()
+logger = logging.getLogger("well.activity")
+logger.setLevel(logging.INFO)
 FFMPEG_PATH = shutil.which("ffmpeg") or "ffmpeg"
 DOWNLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "temp", "downloader"))
+IS_VERCEL = bool(os.getenv("VERCEL"))
+if IS_VERCEL:
+    DOWNLOAD_DIR = os.getenv("WELL_DOWNLOAD_DIR", "/tmp/well-downloader")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 progress_store = {}
 _version_cache = {"checked_at": 0, "latest": None, "error": None}
@@ -18,6 +23,23 @@ CACHE_TTL_SECONDS = int(os.getenv("WELL_DOWNLOAD_TTL_HOURS", "4")) * 3600
 VIDEO_OUTPUT_FORMATS = {'mp4', 'mkv', 'webm', 'mov', 'avi', 'm4v', 'ts'}
 VIDEO_REMAP_FORMATS = {'mov', 'm4v', 'ts'}
 VIDEO_CONVERT_FORMATS = {'avi'}
+
+def activity_client(request: Request):
+    """Return a non-reversible short token; never log the raw client IP."""
+    forwarded = request.headers.get('x-forwarded-for', '')
+    raw = (forwarded.split(',')[0].strip() if forwarded else '') or (request.client.host if request.client else 'unknown')
+    salt = os.getenv('WELL_LOG_SALT', 'well-public-activity')
+    return hashlib.sha256(f'{salt}:{raw}'.encode()).hexdigest()[:12]
+
+def activity_target(url):
+    """Keep activity logs useful without retaining query strings or fragments."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        host = parsed.netloc.lower() or 'invalid-host'
+        path = parsed.path[:100]
+        return f'{host}{path}'
+    except Exception:
+        return 'invalid-url'
 
 BLOCKED_PLATFORMS = {
     "instagram.com": {"name":"Instagram", "reason":"requires cookies/login for most posts", "tip":"Instagram is intentionally not supported in WELL Downloader."},
@@ -133,10 +155,11 @@ def _cache_reaper():
             pass
         time.sleep(600)
 
-threading.Thread(target=_cache_reaper, daemon=True).start()
+if not IS_VERCEL:
+    threading.Thread(target=_cache_reaper, daemon=True).start()
 
 @router.get('/status')
-async def status(): return {'server':'WELL Downloader','ffmpeg_found':shutil.which('ffmpeg') is not None}
+async def status(): return {'server':'WELL Downloader','ffmpeg_found':shutil.which('ffmpeg') is not None,'demo_mode':IS_VERCEL}
 
 @router.get('/yt-dlp-version')
 async def ytdlp_version():
@@ -182,6 +205,7 @@ async def proxy_image(url:str=''):
 async def info_route(request:Request):
     data=await request.json();url=(data.get('url') or '').strip()
     if not url:return JSONResponse({'error':'URL cannot be empty'},status_code=400)
+    logger.info('activity action=info client=%s target=%s', activity_client(request), activity_target(url))
     blocked=check_blocked_platform(url)
     if blocked:return JSONResponse({'error':f"❌ {blocked['name']} is not supported — {blocked['reason']}. {blocked['tip']}"},status_code=400)
     try:
@@ -215,6 +239,8 @@ async def info_route(request:Request):
 async def download_route(request:Request):
     cleanup_expired_downloads()
     data=await request.json();url=(data.get('url') or '').strip();media=data.get('media_type','video');task=str(uuid.uuid4());folder=os.path.join(DOWNLOAD_DIR,task);os.makedirs(folder,exist_ok=True);progress_store[task]={'status':'pending','percent':0,'_ts':time.time()}
+    client_token = activity_client(request)
+    logger.info('activity action=download_start client=%s media=%s format=%s target=%s task=%s', client_token, media, data.get('format') or 'default', activity_target(url), task[:8])
     def work():
         try:
             title=safe_name(data.get('title','download'))
@@ -248,7 +274,10 @@ async def download_route(request:Request):
                 with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([url])
                 files=[os.path.join(folder,f) for f in os.listdir(folder) if not f.endswith(('.part','.ytdl'))];path=max(files,key=os.path.getsize)
             progress_store[task].update(status='done',percent=100,filename=os.path.basename(path),filepath=path,filesize=format_bytes(os.path.getsize(path)),title=title,_ts=time.time())
-        except Exception as e:progress_store[task].update(status='error',message=friendly_error(str(e),url),_ts=time.time())
+            logger.info('activity action=download_done client=%s media=%s task=%s file=%s', client_token, media, task[:8], os.path.basename(path))
+        except Exception as e:
+            progress_store[task].update(status='error',message=friendly_error(str(e),url),_ts=time.time())
+            logger.warning('activity action=download_error client=%s media=%s task=%s reason=%s', client_token, media, task[:8], type(e).__name__)
     threading.Thread(target=work,daemon=True).start();return {'task_id':task}
 
 @router.get('/progress/{task_id}')
