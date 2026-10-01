@@ -3,6 +3,7 @@
 # ================================================================
 from fastapi import APIRouter, Request
 from fastapi.responses import Response, FileResponse, JSONResponse
+from starlette.background import BackgroundTask
 import yt_dlp
 import importlib.metadata as metadata
 import os, threading, uuid, shutil, requests as req_lib
@@ -40,6 +41,18 @@ def activity_target(url):
         return f'{host}{path}'
     except Exception:
         return 'invalid-url'
+
+def video_selector(format_id='', height=0, output_format='mp4'):
+    """Build a resilient yt-dlp selector for the requested quality/container."""
+    if output_format in {'mp4', 'mov', 'm4v'}:
+        audio = 'bestaudio[ext=m4a]/bestaudio'
+    elif output_format == 'webm':
+        audio = 'bestaudio[ext=webm]/bestaudio'
+    else:
+        audio = 'bestaudio'
+    if format_id:
+        return f'{format_id}+{audio}/best[height<={int(height or 99999)}]/best'
+    return f'bestvideo[height<={int(height or 99999)}]+{audio}/best[height<={int(height or 99999)}]/best'
 
 BLOCKED_PLATFORMS = {
     "instagram.com": {"name":"Instagram", "reason":"requires cookies/login for most posts", "tip":"Instagram is intentionally not supported in WELL Downloader."},
@@ -133,7 +146,7 @@ def cleanup_expired_downloads():
     now = time.time()
     for task_id, task in list(progress_store.items()):
         age = now - task.get('_ts', now)
-        if age > CACHE_TTL_SECONDS and task.get('status') not in ('pending', 'downloading', 'processing'):
+        if age > CACHE_TTL_SECONDS and task.get('status') not in ('pending', 'downloading', 'processing', 'serving'):
             shutil.rmtree(os.path.join(DOWNLOAD_DIR, task_id), ignore_errors=True)
             progress_store.pop(task_id, None)
     # Also clean orphaned folders left by a previous server process.
@@ -260,7 +273,7 @@ async def download_route(request:Request):
             else:
                 output_format=data.get('format') if data.get('format') in VIDEO_OUTPUT_FORMATS else 'mp4'
                 audio_format=data.get('format') if data.get('format') in {'wav','flac','m4a','mp3','ogg','opus'} else 'mp3'
-                fmt='bestaudio/best' if media=='audio' else (f"{data.get('format_id')}+bestaudio/best" if data.get('format_id') else 'bestvideo+bestaudio/best')
+                fmt='bestaudio/best' if media=='audio' else video_selector(data.get('format_id',''), data.get('height'), output_format)
                 video_postprocessors=[]
                 merge_format=output_format
                 if media == 'video' and output_format in VIDEO_REMAP_FORMATS:
@@ -271,8 +284,24 @@ async def download_route(request:Request):
                     video_postprocessors=[{'key':'FFmpegVideoConvertor','preferedformat':output_format}]
                 postprocessors=([{'key':'FFmpegExtractAudio','preferredcodec':audio_format,'preferredquality':'0'}] if media=='audio' else video_postprocessors)
                 opts=build_opts(url,{'format':fmt,'outtmpl':os.path.join(folder,'%(title)s.%(ext)s'),'progress_hooks':[progress_hook(task)],'merge_output_format':merge_format if media=='video' else None,'postprocessors':postprocessors})
-                with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([url])
-                files=[os.path.join(folder,f) for f in os.listdir(folder) if not f.endswith(('.part','.ytdl'))];path=max(files,key=os.path.getsize)
+                try:
+                    with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([url])
+                except yt_dlp.utils.DownloadError:
+                    if media != 'video' or not data.get('format_id'):
+                        raise
+                    # A format id can expire or disappear between info and download.
+                    # Retry the requested height using yt-dlp's current best match.
+                    for name in os.listdir(folder):
+                        if name.endswith(('.part', '.ytdl')):
+                            try: os.remove(os.path.join(folder, name))
+                            except OSError: pass
+                    fallback = video_selector('', data.get('height'), output_format)
+                    retry_opts = dict(opts)
+                    retry_opts['format'] = fallback
+                    with yt_dlp.YoutubeDL(retry_opts) as ydl: ydl.download([url])
+                files=[os.path.join(folder,f) for f in os.listdir(folder) if not f.endswith(('.part','.ytdl'))]
+                preferred=[p for p in files if os.path.splitext(p)[1].lower().lstrip('.') == output_format]
+                path=max(preferred or files,key=os.path.getsize)
             progress_store[task].update(status='done',percent=100,filename=os.path.basename(path),filepath=path,filesize=format_bytes(os.path.getsize(path)),title=title,_ts=time.time())
             logger.info('activity action=download_done client=%s media=%s task=%s file=%s', client_token, media, task[:8], os.path.basename(path))
         except Exception as e:
@@ -286,7 +315,15 @@ async def progress(task_id:str):return JSONResponse(progress_store.get(task_id,{
 async def file(task_id:str):
     d=progress_store.get(task_id,{});p=d.get('filepath','')
     if d.get('status')!='done' or not os.path.exists(p):return JSONResponse({'error':'File is not ready'},status_code=404)
-    return FileResponse(p,filename=d.get('filename','download'))
+    # Mark it before constructing FileResponse so the TTL reaper cannot remove
+    # a file while a slow client is still receiving it.
+    d['status'] = 'serving'
+    d['_ts'] = time.time()
+    def cleanup_after_response():
+        shutil.rmtree(os.path.join(DOWNLOAD_DIR,task_id),ignore_errors=True)
+        progress_store.pop(task_id,None)
+        logger.info('activity action=download_cleanup task=%s reason=response_complete', task_id[:8])
+    return FileResponse(p,filename=d.get('filename','download'),background=BackgroundTask(cleanup_after_response))
 @router.delete('/cleanup/{task_id}')
 async def cleanup(task_id:str):
     shutil.rmtree(os.path.join(DOWNLOAD_DIR,task_id),ignore_errors=True);progress_store.pop(task_id,None);return {'ok':True}

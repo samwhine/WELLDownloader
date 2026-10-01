@@ -101,6 +101,8 @@ WELL_DOWNLOAD_TTL_HOURS=2
 
 Stop the server before running `CLEAR_CACHE.bat`. To update `yt-dlp`, stop the server, run `UPDATE_YTDLP.bat`, and restart the application.
 
+When a user clicks **Save File**, the browser streams the file from `/api/downloader/file/{task_id}`. The server now deletes that task folder only after the file response has finished sending, so a large download that takes many minutes is not interrupted by cleanup. If the user never saves the file, the normal TTL cleanup removes the completed task later. Do not manually clear the task folder while a file is being downloaded by a user.
+
 ## Architecture
 
 The FastAPI application serves `static/index.html` and mounts the downloader router under `/api/downloader`. The frontend preserves paste-to-fetch, YouTube playlist/radio parameter cleanup, public-platform warnings, format selection, thumbnail selection, progress polling, and carousel selection. Downloads run in a background thread and are tracked through `/progress/{task_id}` until the completed file is served by `/file/{task_id}`.
