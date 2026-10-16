@@ -2528,6 +2528,9 @@ let dlSelThumb = '';
 let dlSelImages = new Set();
 let dlTaskId = null;
 let dlPollT  = null;
+let dlDownloadBusy = false;
+let dlProcessingTimer = null;
+let dlProcessingSince = 0;
 let dlHistory = [];
 try { dlHistory = JSON.parse(localStorage.getItem('well_dl_history')||'[]'); } catch {}
 let wellDemoMode = false;
@@ -2618,10 +2621,14 @@ function dlPickQuality(el, formatId, height, ext) {
 }
 
 async function dlFetch() {
+  // A delayed paste handler must never reset an active download task.
+  if (dlDownloadBusy) return;
   if (dlPollT) { clearInterval(dlPollT); dlPollT = null; }
   dlTaskId = null;
   let url = document.getElementById('dl-url').value.trim();
   if (!url) { dlShowErr('Please enter a URL first.'); return; }
+  // Do not let an old preview be downloaded while the new pasted URL is loading.
+  dlInfo = null;
   dlHideErr(); dlHideWarn();
 
   // YouTube URL sanitizer — block pure playlists, strip radio/mix params
@@ -2948,11 +2955,12 @@ function dlUpdateSelCount() {
 }
 
 async function dlStart(type) {
+  if (dlDownloadBusy) return;
   if (wellDemoMode) {
     dlShowErr('Demo preview only. Run WELL Downloader locally or on a VPS with Python, FFmpeg, and writable storage to download files.');
     return;
   }
-  if (!dlInfo) return;
+  if (!dlInfo) { dlShowErr('Media info is still loading. Please wait for the preview to finish, then try again.'); return; }
   if (type === 'images' && dlSelImages.size === 0) { dlShowErr('Please select at least 1 image.'); return; }
 
   const url = document.getElementById('dl-url').value.trim();
@@ -2983,6 +2991,7 @@ async function dlStart(type) {
 
   const btnMap = { video:'dl-btn-video', audio:'dl-btn-audio', images:'dl-btn-images', thumbnail:'dl-btn-thumb' };
   const btnId = btnMap[type];
+  dlDownloadBusy = true;
   setBtn(btnId, true, 'Starting...');
   dlHideErr();
 
@@ -2998,6 +3007,7 @@ async function dlStart(type) {
     dlShowProg();
     dlStartPoll(dlTaskId, type, btnId);
   } catch(e) {
+    dlDownloadBusy = false;
     const lbls = { video:'⬇ Download Video', audio:'⬇ Download Audio', images:'⬇ Download Images', thumbnail:'⬇ Download Thumbnail' };
     setBtn(btnId, false, lbls[type]);
     dlShowErr(e.message || 'Failed to start download');
@@ -3013,6 +3023,9 @@ function dlShowProg() {
 }
 
 function dlReset() {
+  dlDownloadBusy = false;
+  if (dlProcessingTimer) { clearInterval(dlProcessingTimer); dlProcessingTimer = null; }
+  dlProcessingSince = 0;
   document.getElementById('dl-prog').classList.remove('visible');
   document.getElementById('dl-done').classList.remove('visible');
   if (dlPollT) { clearInterval(dlPollT); dlPollT = null; }
@@ -3041,6 +3054,32 @@ function dlFormatEta(value) {
   return `${s}s`;
 }
 
+function dlFormatElapsed(value) {
+  const seconds = Math.max(0, Math.floor(Number(value) || 0));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h) return `${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`;
+  if (m) return `${m}m ${String(s).padStart(2,'0')}s`;
+  return `${s}s`;
+}
+
+function dlStartProcessingTimer() {
+  if (dlProcessingTimer) clearInterval(dlProcessingTimer);
+  dlProcessingSince = Date.now();
+  const update = () => {
+    const elapsed = dlFormatElapsed((Date.now() - dlProcessingSince) / 1000);
+    document.getElementById('dl-prog-step').textContent = `FFmpeg is still processing — keep this tab open. Elapsed: ${elapsed}`;
+  };
+  update();
+  dlProcessingTimer = setInterval(update, 1000);
+}
+
+function dlStopProcessingTimer() {
+  if (dlProcessingTimer) { clearInterval(dlProcessingTimer); dlProcessingTimer = null; }
+  dlProcessingSince = 0;
+}
+
 async function dlDoPoll(tid, type, btnId) {
   try {
     const data = await (await fetch(`${DL_API}/progress/${tid}`)).json();
@@ -3055,16 +3094,25 @@ async function dlDoPoll(tid, type, btnId) {
       document.getElementById('dl-prog-label').textContent = type === 'images' ? 'Downloading images...' : 'Downloading...';
       document.getElementById('dl-prog-step').textContent  = data.step || '';
     } else if (s === 'processing') {
+      if (!dlProcessingTimer) dlStartProcessingTimer();
       document.getElementById('dl-prog-pct').textContent  = '99%';
       document.getElementById('dl-prog-bar').style.width  = '99%';
       document.getElementById('dl-prog-label').textContent = type === 'images' ? 'Packaging images...' : 'Merging with FFmpeg...';
-      document.getElementById('dl-prog-step').textContent  = 'Almost done...';
+      document.getElementById('dl-prog-step').textContent  = 'FFmpeg is still processing — keep this tab open.';
       document.getElementById('dl-prog-speed').textContent = '—';
       document.getElementById('dl-prog-eta').textContent   = '—';
       const cancelBtn = document.getElementById('dl-cancel-btn');
       if (cancelBtn) cancelBtn.style.display = 'none';
     } else if (s === 'done') {
+      dlStopProcessingTimer();
       clearInterval(dlPollT);
+      if (type === 'video' && /\.(mp3|wav|flac|m4a|ogg|opus)$/i.test(data.filename || '')) {
+        dlDownloadBusy = false;
+        document.getElementById('dl-prog').classList.remove('visible');
+        dlShowErr('The server returned an audio file for a video request. Please update/restart the backend and try again.');
+        return;
+      }
+      dlDownloadBusy = false;
       document.getElementById('dl-prog-bar').style.width = '100%';
       document.getElementById('dl-prog-pct').textContent = '100%';
       const lbls = { video:'⬇ Download Video', audio:'⬇ Download Audio', images:'⬇ Download Images', thumbnail:'⬇ Download Thumbnail' };
@@ -3076,6 +3124,8 @@ async function dlDoPoll(tid, type, btnId) {
       setTimeout(() => dlShowDone(tid, data), 400);
       dlAddHist(dlInfo?.title, data.filename, type, data.count, document.getElementById('dl-url').value.trim());
     } else if (s === 'cancelled') {
+      dlStopProcessingTimer();
+      dlDownloadBusy = false;
       clearInterval(dlPollT);
       document.getElementById('dl-prog').classList.remove('visible');
       const cancelBtn = document.getElementById('dl-cancel-btn');
@@ -3084,6 +3134,8 @@ async function dlDoPoll(tid, type, btnId) {
       setBtn(btnId, false, lbls[type]);
       dlShowErr('Download cancelled.');
     } else if (s === 'error') {
+      dlStopProcessingTimer();
+      dlDownloadBusy = false;
       clearInterval(dlPollT);
       document.getElementById('dl-prog').classList.remove('visible');
       const lbls = { video:'⬇ Download Video', audio:'⬇ Download Audio', images:'⬇ Download Images', thumbnail:'⬇ Download Thumbnail' };

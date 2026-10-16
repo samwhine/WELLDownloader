@@ -251,7 +251,11 @@ async def info_route(request:Request):
 @router.post('/download')
 async def download_route(request:Request):
     cleanup_expired_downloads()
-    data=await request.json();url=(data.get('url') or '').strip();media=data.get('media_type','video');task=str(uuid.uuid4());folder=os.path.join(DOWNLOAD_DIR,task);os.makedirs(folder,exist_ok=True);progress_store[task]={'status':'pending','percent':0,'_ts':time.time()}
+    data=await request.json();url=(data.get('url') or '').strip();media=str(data.get('media_type') or 'video').strip().lower()
+    if media == 'images': media = 'image'
+    if media not in {'video','audio','image','thumbnail'}:
+        return JSONResponse({'error':f'Unsupported media type: {media}'},status_code=400)
+    task=str(uuid.uuid4());folder=os.path.join(DOWNLOAD_DIR,task);os.makedirs(folder,exist_ok=True);progress_store[task]={'status':'pending','percent':0,'media_type':media,'_ts':time.time()}
     client_token = activity_client(request)
     logger.info('activity action=download_start client=%s media=%s format=%s target=%s task=%s', client_token, media, data.get('format') or 'default', activity_target(url), task[:8])
     def work():
@@ -300,8 +304,14 @@ async def download_route(request:Request):
                     retry_opts['format'] = fallback
                     with yt_dlp.YoutubeDL(retry_opts) as ydl: ydl.download([url])
                 files=[os.path.join(folder,f) for f in os.listdir(folder) if not f.endswith(('.part','.ytdl'))]
-                preferred=[p for p in files if os.path.splitext(p)[1].lower().lstrip('.') == output_format]
-                path=max(preferred or files,key=os.path.getsize)
+                if media == 'video':
+                    video_files=[p for p in files if os.path.splitext(p)[1].lower().lstrip('.') in VIDEO_OUTPUT_FORMATS]
+                    if not video_files:
+                        raise Exception('Video download produced no video file. Check FFmpeg and the selected format.')
+                    preferred=[p for p in video_files if os.path.splitext(p)[1].lower().lstrip('.') == output_format]
+                    path=max(preferred or video_files,key=os.path.getsize)
+                else:
+                    path=max(files,key=os.path.getsize)
             progress_store[task].update(status='done',percent=100,filename=os.path.basename(path),filepath=path,filesize=format_bytes(os.path.getsize(path)),title=title,_ts=time.time())
             logger.info('activity action=download_done client=%s media=%s task=%s file=%s', client_token, media, task[:8], os.path.basename(path))
         except Exception as e:
