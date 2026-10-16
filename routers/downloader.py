@@ -25,6 +25,26 @@ VIDEO_OUTPUT_FORMATS = {'mp4', 'mkv', 'webm', 'mov', 'avi', 'm4v', 'ts'}
 VIDEO_REMAP_FORMATS = {'mov', 'm4v', 'ts'}
 VIDEO_CONVERT_FORMATS = {'avi'}
 
+def current_ytdlp_version():
+    try:
+        return metadata.version('yt-dlp')
+    except metadata.PackageNotFoundError:
+        return getattr(yt_dlp.version, '__version__', 'unknown')
+
+def ytdlp_update_status(check_remote=True):
+    """Return installed/latest yt-dlp versions without making startup blocking."""
+    current = current_ytdlp_version()
+    now = time.time()
+    if check_remote and (now - _version_cache['checked_at'] > 300 or not _version_cache['latest']):
+        try:
+            response = req_lib.get('https://pypi.org/pypi/yt-dlp/json', timeout=8)
+            response.raise_for_status()
+            _version_cache.update(checked_at=now, latest=response.json().get('info', {}).get('version'), error=None)
+        except Exception as exc:
+            _version_cache.update(checked_at=now, error=str(exc))
+    latest = _version_cache.get('latest')
+    return {'current': current, 'latest': latest, 'outdated': bool(latest and current != latest), 'check_error': _version_cache.get('error')}
+
 def activity_client(request: Request):
     """Return a non-reversible short token; never log the raw client IP."""
     forwarded = request.headers.get('x-forwarded-for', '')
@@ -172,26 +192,14 @@ if not IS_VERCEL:
     threading.Thread(target=_cache_reaper, daemon=True).start()
 
 @router.get('/status')
-async def status(): return {'server':'WELL Downloader','ffmpeg_found':shutil.which('ffmpeg') is not None,'demo_mode':IS_VERCEL}
+async def status():
+    version = ytdlp_update_status(check_remote=False)
+    return {'server':'WELL Downloader','ffmpeg_found':shutil.which('ffmpeg') is not None,'demo_mode':IS_VERCEL,'yt_dlp':version}
 
 @router.get('/yt-dlp-version')
 async def ytdlp_version():
     """Return current venv version plus PyPI latest; UI keeps warning until this matches."""
-    try:
-        current = metadata.version('yt-dlp')
-    except metadata.PackageNotFoundError:
-        current = getattr(yt_dlp.version, '__version__', 'unknown')
-    now = time.time()
-    if now - _version_cache['checked_at'] > 300 or not _version_cache['latest']:
-        try:
-            response = req_lib.get('https://pypi.org/pypi/yt-dlp/json', timeout=8)
-            response.raise_for_status()
-            _version_cache.update(checked_at=now, latest=response.json().get('info', {}).get('version'), error=None)
-        except Exception as exc:
-            _version_cache.update(checked_at=now, error=str(exc))
-    latest = _version_cache.get('latest')
-    outdated = bool(latest and current != latest)
-    return {'current': current, 'latest': latest, 'outdated': outdated, 'check_error': _version_cache.get('error')}
+    return ytdlp_update_status(check_remote=True)
 
 @router.get('/rules')
 async def rules():

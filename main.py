@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 import os
+import threading
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -14,11 +15,26 @@ PUBLIC_SITE_URL = os.getenv("PUBLIC_SITE_URL", "https://well.creativelegacy.my.i
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    installed = downloader.current_ytdlp_version()
     print("\n====================================")
     print("        WELL Downloader")
     print("====================================")
     print("App  -> http://localhost:5555")
     print("Docs -> http://localhost:5555/docs")
+    print(f"yt-dlp -> {installed} (checking for updates...)" )
+    def check_ytdlp_update():
+        try:
+            result = downloader.ytdlp_update_status(check_remote=True)
+            if result.get('outdated'):
+                print("[UPDATE AVAILABLE] yt-dlp {latest} is available (installed: {current}).".format(**result), flush=True)
+                print("Stop WELL Downloader, run UPDATE_YTDLP.bat, then start the server again.", flush=True)
+            elif result.get('latest'):
+                print(f"yt-dlp is up to date ({result['current']}).", flush=True)
+            elif result.get('check_error'):
+                print(f"yt-dlp update check unavailable: {result['check_error']}", flush=True)
+        except Exception as exc:
+            print(f"yt-dlp update check failed: {exc}", flush=True)
+    threading.Thread(target=check_ytdlp_update, daemon=True, name='ytdlp-update-check').start()
     print("====================================\n")
     yield
     print("WELL Downloader stopped.")

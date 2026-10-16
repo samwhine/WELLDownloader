@@ -2563,6 +2563,10 @@ async function dlCheckSrv() {
     document.getElementById('dl-srv-dot').className = 'srv-dot ' + (d.ffmpeg_found?'online':'offline');
     document.getElementById('dl-srv-label').textContent = wellDemoMode ? 'Demo preview · downloads disabled' : (d.ffmpeg_found ? 'Online · FFmpeg OK' : 'Online · FFmpeg NOT FOUND!');
     document.getElementById('dl-demo-banner')?.classList.toggle('visible', wellDemoMode);
+    const ytdlp = d.yt_dlp || {};
+    if (ytdlp.outdated) {
+      dlShowWarn(`yt-dlp ${ytdlp.latest} is available (installed: ${ytdlp.current}). Stop WELL Downloader, run UPDATE_YTDLP.bat, then start the server again.`);
+    }
   } catch {
     // Only show offline after 2 consecutive failures
     dlCheckSrv._fails = (dlCheckSrv._fails || 0) + 1;
