@@ -21,6 +21,7 @@ async def lifespan(app: FastAPI):
     print("====================================")
     print("App  -> http://localhost:5555")
     print("Docs -> http://localhost:5555/docs")
+    print(f"FFmpeg -> {downloader.FFMPEG_PATH or 'NOT FOUND'}")
     print(f"yt-dlp -> {installed} (checking for updates...)" )
     def check_ytdlp_update():
         try:

@@ -12,7 +12,23 @@ import re, zipfile, urllib.parse, time, hashlib, logging
 router = APIRouter()
 logger = logging.getLogger("well.activity")
 logger.setLevel(logging.INFO)
-FFMPEG_PATH = shutil.which("ffmpeg") or "ffmpeg"
+
+def resolve_ffmpeg():
+    candidates = [
+        os.getenv('FFMPEG_PATH', ''),
+        shutil.which('ffmpeg') or '',
+        os.path.expandvars(r'%ProgramFiles%\ffmpeg\bin\ffmpeg.exe'),
+        os.path.expandvars(r'%ProgramFiles(x86)%\ffmpeg\bin\ffmpeg.exe'),
+        r'C:\ffmpeg\bin\ffmpeg.exe',
+        '/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg',
+    ]
+    for candidate in candidates:
+        if candidate and (os.path.isfile(candidate) or shutil.which(candidate)):
+            return candidate
+    return ''
+
+FFMPEG_PATH = resolve_ffmpeg()
+FFMPEG_AVAILABLE = bool(FFMPEG_PATH)
 DOWNLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "temp", "downloader"))
 IS_VERCEL = bool(os.getenv("VERCEL"))
 if IS_VERCEL:
@@ -130,6 +146,11 @@ def build_opts(url, extra=None):
     if extra: opts.update(extra)
     return opts
 
+def progressive_video_selector(height=0):
+    """Select a single video+audio file when FFmpeg cannot merge streams."""
+    limit = int(height or 99999)
+    return f'best[height<={limit}][ext=mp4]/best[height<={limit}]/best'
+
 def progress_hook(task_id):
     def hook(d):
         if d['status']=='downloading':
@@ -194,7 +215,7 @@ if not IS_VERCEL:
 @router.get('/status')
 async def status():
     version = ytdlp_update_status(check_remote=False)
-    return {'server':'WELL Downloader','ffmpeg_found':shutil.which('ffmpeg') is not None,'demo_mode':IS_VERCEL,'yt_dlp':version}
+    return {'server':'WELL Downloader','ffmpeg_found':FFMPEG_AVAILABLE,'ffmpeg_path':FFMPEG_PATH or None,'demo_mode':IS_VERCEL,'yt_dlp':version}
 
 @router.get('/yt-dlp-version')
 async def ytdlp_version():
@@ -285,17 +306,24 @@ async def download_route(request:Request):
             else:
                 output_format=data.get('format') if data.get('format') in VIDEO_OUTPUT_FORMATS else 'mp4'
                 audio_format=data.get('format') if data.get('format') in {'wav','flac','m4a','mp3','ogg','opus'} else 'mp3'
-                fmt='bestaudio/best' if media=='audio' else video_selector(data.get('format_id',''), data.get('height'), output_format)
+                no_ffmpeg_video = media == 'video' and not FFMPEG_AVAILABLE
+                if no_ffmpeg_video and output_format != 'mp4':
+                    raise Exception('FFmpeg is not available. Start the local backend with FFmpeg installed to create non-MP4 containers.')
+                fmt = (
+                    'bestaudio/best' if media == 'audio' else
+                    progressive_video_selector(data.get('height')) if no_ffmpeg_video else
+                    video_selector(data.get('format_id',''), data.get('height'), output_format)
+                )
                 video_postprocessors=[]
                 merge_format=output_format
-                if media == 'video' and output_format in VIDEO_REMAP_FORMATS:
+                if media == 'video' and not no_ffmpeg_video and output_format in VIDEO_REMAP_FORMATS:
                     merge_format='mkv'
                     video_postprocessors=[{'key':'FFmpegVideoRemuxer','preferedformat':output_format}]
-                elif media == 'video' and output_format in VIDEO_CONVERT_FORMATS:
+                elif media == 'video' and not no_ffmpeg_video and output_format in VIDEO_CONVERT_FORMATS:
                     merge_format='mkv'
                     video_postprocessors=[{'key':'FFmpegVideoConvertor','preferedformat':output_format}]
                 postprocessors=([{'key':'FFmpegExtractAudio','preferredcodec':audio_format,'preferredquality':'0'}] if media=='audio' else video_postprocessors)
-                opts=build_opts(url,{'format':fmt,'outtmpl':os.path.join(folder,'%(title)s.%(ext)s'),'progress_hooks':[progress_hook(task)],'merge_output_format':merge_format if media=='video' else None,'postprocessors':postprocessors})
+                opts=build_opts(url,{'format':fmt,'outtmpl':os.path.join(folder,'%(title)s.%(ext)s'),'progress_hooks':[progress_hook(task)],'merge_output_format':merge_format if media=='video' and not no_ffmpeg_video else None,'postprocessors':postprocessors})
                 try:
                     with yt_dlp.YoutubeDL(opts) as ydl: ydl.download([url])
                 except yt_dlp.utils.DownloadError:
@@ -307,7 +335,7 @@ async def download_route(request:Request):
                         if name.endswith(('.part', '.ytdl')):
                             try: os.remove(os.path.join(folder, name))
                             except OSError: pass
-                    fallback = video_selector('', data.get('height'), output_format)
+                    fallback = progressive_video_selector(data.get('height')) if no_ffmpeg_video else video_selector('', data.get('height'), output_format)
                     retry_opts = dict(opts)
                     retry_opts['format'] = fallback
                     with yt_dlp.YoutubeDL(retry_opts) as ydl: ydl.download([url])

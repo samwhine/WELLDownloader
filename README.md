@@ -113,6 +113,8 @@ The FastAPI application serves `static/index.html` and mounts the downloader rou
 
 Because downloads depend on `yt-dlp`, FFmpeg, writable temporary storage, and a process that stays available while media is fetched and merged, a local machine or full VPS is a better runtime than a serverless function.
 
+The FFmpeg indicator describes the backend that is currently serving the page. Installing FFmpeg on a Windows PC does not make FFmpeg available to `well.creativelegacy.my.id` or another hosted deployment. For full video merging, open the local URL printed by `WELL_DOWNLOADER_START.bat` or configure FFmpeg on the VPS. If FFmpeg is missing, the backend can still request a single progressive MP4 stream when the platform exposes one; formats that require video/audio merging or container conversion will show a clear FFmpeg error instead of returning an audio file. Platform extractors are best-effort and can temporarily fail when a service changes its response or blocks the server IP; updating `yt-dlp` is the supported recovery path.
+
 ## Search indexing and social previews
 
 The public page includes an absolute canonical URL, English title and description, author metadata for **Samuel Extehines Heydemans**, a GitHub author link to [@samwhine](https://github.com/samwhine), Open Graph and Twitter preview tags, JSON-LD structured data, `robots.txt`, and a 1200×630 `og-image.png`. The sitemap is available at `https://well.creativelegacy.my.id/sitemap.xml`.
